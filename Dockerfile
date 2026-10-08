@@ -19,7 +19,7 @@ RUN npm_registry="$NPM_REGISTRY"; \
       export COREPACK_NPM_REGISTRY="$npm_registry"; \
     fi && \
     corepack enable && \
-    corepack prepare pnpm@10.28.0 --activate
+    corepack prepare pnpm@12.10.1 --activate
 
 WORKDIR /app
 
@@ -71,6 +71,7 @@ ENV NEXT_PUBLIC_VIDEO_EXPORT_CTA_DESTINATION=$NEXT_PUBLIC_VIDEO_EXPORT_CTA_DESTI
 ENV NEXT_PUBLIC_ENABLE_PPTX_IMPORT=$NEXT_PUBLIC_ENABLE_PPTX_IMPORT
 ENV NEXT_PUBLIC_PRO_WORKBENCH_ENABLED=$NEXT_PUBLIC_PRO_WORKBENCH_ENABLED
 
+COPY --from=deps /root/.cache/node/corepack /root/.cache/node/corepack
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages ./packages
 COPY . .

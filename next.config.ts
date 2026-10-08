@@ -53,9 +53,27 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: '200mb',
     ...(process.env.VISTA_BUILD_LOW_MEMORY === '1'
-      ? { cpus: 1, staticGenerationMaxConcurrency: 1 }
+      ? {
+          cpus: 1,
+          staticGenerationMaxConcurrency: 1,
+          webpackBuildWorker: false,
+          webpackMemoryOptimizations: true,
+          parallelServerCompiles: false,
+          parallelServerBuildTraces: false,
+        }
       : {}),
   },
+  ...(process.env.VISTA_BUILD_LOW_MEMORY === '1'
+    ? {
+        webpack: ((config, { dev }) => {
+          if (!dev) {
+            config.cache = false;
+            config.parallelism = 1;
+          }
+          return config;
+        }) satisfies NonNullable<NextConfig['webpack']>,
+      }
+    : {}),
   async headers() {
     const extraAncestors = process.env.ALLOWED_FRAME_ANCESTORS?.trim();
     const frameAncestors = extraAncestors ? `'self' ${extraAncestors}` : "'self'";
