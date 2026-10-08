@@ -87,7 +87,7 @@ RUN NODE_OPTIONS=--max-old-space-size=1024 pnpm run build:packages
 
 ARG VISTA_BUILD_LOW_MEMORY="0"
 ARG VISTA_BUILD_HEAP_MB="1536"
-RUN VISTA_BUILD_LOW_MEMORY=$VISTA_BUILD_LOW_MEMORY NODE_OPTIONS=--max-old-space-size=$VISTA_BUILD_HEAP_MB pnpm build
+RUN VISTA_BUILD_LOW_MEMORY=$VISTA_BUILD_LOW_MEMORY NODE_OPTIONS=--max-old-space-size=$VISTA_BUILD_HEAP_MB pnpm build --webpack
 
 # ---- Stage 4: Runner ----
 FROM node:22-alpine AS runner
