@@ -69,6 +69,24 @@ try {
           throw new Error('Original container state changed; stopping isolated builder');
         const current = docker(['exec', container, 'cat', '/sys/fs/cgroup/memory.current']);
         console.log(`Builder memory: ${Math.round(Number(current) / 1024 ** 2)} MiB / 3072 MiB`);
+        const peak = docker(['exec', container, 'cat', '/sys/fs/cgroup/memory.peak']);
+        const stats = docker(['exec', container, 'cat', '/sys/fs/cgroup/memory.stat']);
+        const parts = Object.fromEntries(
+          stats
+            .trim()
+            .split('\n')
+            .map((line) => line.split(' ')),
+        );
+        console.log(
+          JSON.stringify({
+            peakMiB: Math.round(Number(peak) / 1024 ** 2),
+            anonMiB: Math.round(Number(parts.anon) / 1024 ** 2),
+            fileMiB: Math.round(Number(parts.file) / 1024 ** 2),
+            kernelMiB: Math.round(Number(parts.kernel) / 1024 ** 2),
+          }),
+        );
+        const processes = docker(['top', container, '-eo', 'pid,ppid,rss,comm']);
+        console.log(processes);
       } catch (error) {
         failure = error;
         clearInterval(monitor);

@@ -40,6 +40,57 @@ test('Docker build selects Webpack while retaining bounded heap and package prep
   assert.match(dockerfile, /NODE_OPTIONS=--max-old-space-size=1024 pnpm run build:packages/);
 });
 
+test('Corepack prepares the declared manager and preserves its cache in the builder', async () => {
+  const dockerfile = await readFile('Dockerfile', 'utf8');
+  const manifest = JSON.parse(await readFile('package.json', 'utf8'));
+  assert.ok(dockerfile.includes(`corepack prepare ${manifest.packageManager} --activate`));
+  assert.match(
+    dockerfile,
+    /COPY --from=deps \/root\/\.cache\/node\/corepack \/root\/\.cache\/node\/corepack/,
+  );
+});
+
+test('low-memory config removes compiler child workers without weakening validation', () => {
+  const load = (enabled) => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '-e',
+        "import imported from './next.config.ts'; const config=imported.default ?? imported; const input={cache:{type:'filesystem'},parallelism:100,optimization:{minimize:true},plugins:['preserved']}; console.log(JSON.stringify({config,production:config.webpack?.(structuredClone(input),{dev:false}),development:config.webpack?.(structuredClone(input),{dev:true})}));",
+      ],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, VISTA_BUILD_LOW_MEMORY: enabled },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const loaded = load('1');
+  assert.equal(loaded.production.cache, false);
+  assert.equal(loaded.production.parallelism, 1);
+  assert.equal(loaded.production.optimization.minimize, true);
+  assert.deepEqual(loaded.production.plugins, ['preserved']);
+  assert.deepEqual(loaded.development.cache, { type: 'filesystem' });
+  assert.equal(loaded.development.parallelism, 100);
+  const low = loaded.config;
+  assert.equal(low.experimental.webpackBuildWorker, false);
+  assert.equal(low.experimental.webpackMemoryOptimizations, true);
+  assert.equal(low.experimental.parallelServerCompiles, false);
+  assert.equal(low.experimental.parallelServerBuildTraces, false);
+  assert.equal(low.experimental.cpus, 1);
+  assert.equal(low.experimental.staticGenerationMaxConcurrency, 1);
+  assert.notEqual(low.typescript.ignoreBuildErrors, true);
+  const normalLoaded = load('0');
+  assert.equal(normalLoaded.production, undefined);
+  const normal = normalLoaded.config;
+  assert.equal(normal.experimental.webpackBuildWorker, undefined);
+  assert.equal(normal.experimental.webpackMemoryOptimizations, undefined);
+});
+
 test('bounded builder is scoped, verified, removed before no-build startup', async (t) => {
   const { result, calls } = await run(t, 'success');
   assert.equal(result.status, 0, result.stderr);
