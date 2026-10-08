@@ -79,7 +79,11 @@
     "htmlSilent": "Sem narração",
     "htmlSilentDesc": "Arquivo menor: legendas no ritmo de leitura; vídeos não incluídos",
     "htmlLarge": "O arquivo exportado tem {{size}} MB e pode demorar para abrir. Exporte sem narração para um arquivo menor.",
-    "htmlTooLarge": "Esta aula geraria um arquivo de {{size}} MB, grande demais para um único arquivo HTML. Exporte sem narração.",
+    "htmlTooLarge": "Esta aula geraria uma exportação de {{size}} MB, grande demais para salvar mesmo como ZIP. Exporte sem narração.",
+    "htmlPageTooLarge": "Mesmo com imagens e mídias salvas como arquivos separados, a página desta aula teria cerca de {{size}} MB, grande demais para abrir com confiabilidade. As mídias dentro das cenas interativas ficam na página; exporte sem narração para deixá-las de fora.",
+    "htmlZipFallback": "Esta aula é grande demais para um único arquivo HTML (cerca de {{size}} MB), então foi salva como ZIP: classroom.html com suas imagens e mídias em pastas ao lado.",
+    "htmlZipFallbackDesc": "Extraia o ZIP inteiro e depois abra classroom.html.",
+    "htmlZipReadme": "Primeiro extraia este arquivo ZIP inteiro e depois abra classroom.html em um navegador. Mantenha as pastas (images, audio, media) ao lado de classroom.html: a página mostra as imagens e reproduz a narração e os vídeos a partir delas. Aberta de dentro do ZIP sem extrair, a página não as encontra.",
     "htmlPlayer": {
       "previous": "Anterior",
       "next": "Próximo",
@@ -116,7 +120,8 @@
       "captions": "Legendas",
       "discussionTitle": "Discussão",
       "discussionContinueOnline": "Discutir na sala de aula online",
-      "discussionDismiss": "Fechar"
+      "discussionDismiss": "Fechar",
+      "linkedFilesUnavailable": "Não foi possível carregar algumas imagens, narrações ou vídeos. Se você abriu classroom.html de dentro do ZIP, extraia o ZIP inteiro primeiro."
     },
     "scriptMd": "Baixar roteiro (.md)",
     "scriptMdDesc": "Texto da narração como Markdown",

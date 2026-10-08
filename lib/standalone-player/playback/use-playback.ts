@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { ManifestScene } from '@/lib/export/classroom-zip-types';
 import { PlaybackController, type PlaybackState } from './controller';
-import { createMediaLibrary, type MediaLibrary } from './media-library';
+import { createMediaLibrary, firstLinkedImage, type MediaLibrary } from './media-library';
 import { NarrationPlayer, VideoRegistry, WidgetChannel } from './media-ports';
 
 export interface Playback {
   state: PlaybackState;
+  /** A file shipped next to the page (the ZIP variant) could not be loaded. */
+  linkedMediaMissing: boolean;
   media: MediaLibrary;
   videos: VideoRegistry;
   widgets: WidgetChannel;
@@ -31,7 +33,7 @@ export function usePlayback(
   }, [navigate]);
 
   const { controller, media, narration, videos, widgets } = useMemo(() => {
-    const media = createMediaLibrary(document);
+    const media = createMediaLibrary(document, { linkedImage: firstLinkedImage(scenes) });
     const narration = new NarrationPlayer(media);
     const videos = new VideoRegistry();
     const widgets = new WidgetChannel();
@@ -67,6 +69,8 @@ export function usePlayback(
   }, [controller, index]);
 
   const state = useSyncExternalStore(controller.subscribe, controller.getState);
+  const linkedMediaMissing = useSyncExternalStore(media.subscribe, media.linkedMediaMissing);
+  useEffect(() => media.probeLinkedMedia(), [media]);
 
   const play = useCallback(() => {
     narration.prime();
@@ -81,5 +85,15 @@ export function usePlayback(
   const pause = useCallback(() => controller.pause(), [controller]);
   const dismissDiscussion = useCallback(() => controller.dismissDiscussion(), [controller]);
 
-  return { state, media, videos, widgets, play, pause, toggle, dismissDiscussion };
+  return {
+    state,
+    linkedMediaMissing,
+    media,
+    videos,
+    widgets,
+    play,
+    pause,
+    toggle,
+    dismissDiscussion,
+  };
 }

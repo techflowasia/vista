@@ -82,10 +82,15 @@ afterEach(() => {
 });
 
 describe('NarrationPlayer', () => {
+  const reportError = vi.fn();
   const media = (src: string | undefined): MediaLibrary => ({
     resolve: () => src,
     has: () => !!src,
     dispose: () => {},
+    reportError,
+    linkedMediaMissing: () => false,
+    subscribe: () => () => {},
+    probeLinkedMedia: () => {},
   });
 
   function player(src: string | null = 'blob:clip') {
@@ -138,6 +143,7 @@ describe('NarrationPlayer', () => {
   });
 
   it('an error before the clip starts falls back to the timer; after it started it just ends', async () => {
+    reportError.mockClear();
     const first = player();
     const early = first.narration.play('k', control());
     first.element.dispatchEvent(new Event('error'));
@@ -149,6 +155,39 @@ describe('NarrationPlayer', () => {
     await flush();
     second.element.dispatchEvent(new Event('error'));
     await expect(late).resolves.toBe(true);
+    // Both failures reach the library, which decides whether a file is missing.
+    expect(reportError).toHaveBeenCalledTimes(2);
+    expect(reportError).toHaveBeenCalledWith('k');
+  });
+
+  it('reports a clip with no playable source when play() rejects before any error event', async () => {
+    reportError.mockClear();
+    const { narration, audio } = player();
+    const done = narration.play('audio/missing.mp3', control());
+    // WebKit and Firefox reject play() for a missing file first.
+    audio.refuse('NotSupportedError');
+    await expect(done).resolves.toBe(false);
+    expect(reportError).toHaveBeenCalledWith('audio/missing.mp3');
+  });
+
+  it('reports an error event that fires after the clip has already given up', async () => {
+    reportError.mockClear();
+    const { narration, audio, element } = player();
+    const done = narration.play('audio/late.mp3', control());
+    audio.refuse('NotAllowedError');
+    await expect(done).resolves.toBe(false);
+    // Autoplay refusal is not a missing file.
+    expect(reportError).not.toHaveBeenCalled();
+    element.dispatchEvent(new Event('error'));
+    expect(reportError).toHaveBeenCalledWith('audio/late.mp3');
+  });
+
+  it('does not report the priming sound as a clip', () => {
+    reportError.mockClear();
+    const { narration, element } = player();
+    narration.prime();
+    element.dispatchEvent(new Event('error'));
+    expect(reportError).toHaveBeenCalledWith(undefined);
   });
 
   it('cancelling pauses the clip', async () => {

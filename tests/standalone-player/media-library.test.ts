@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createMediaLibrary } from '@/lib/standalone-player/playback/media-library';
+import {
+  createMediaLibrary,
+  firstLinkedImage,
+} from '@/lib/standalone-player/playback/media-library';
+import type { ManifestScene } from '@/lib/export/classroom-zip-types';
 
 const BYTES = Uint8Array.from([0x49, 0x44, 0x33, 4, 0, 0, 0, 0]);
 
@@ -77,5 +81,126 @@ describe('createMediaLibrary', () => {
     expect(library.resolve('corrupt')).toBeUndefined();
     expect(library.resolve('__proto__')).toBeUndefined();
     expect(createMediaLibrary(documentWith('{not json', {})).resolve('x')).toBeUndefined();
+  });
+
+  it('counts only linked files that fail to load as missing, and notifies once', () => {
+    const library = createMediaLibrary(
+      documentWith(
+        {
+          'audio/audio-1.mp3': { mimeType: 'audio/mpeg', src: 'audio/audio-1.mp3' },
+          embedded: { mimeType: 'audio/mpeg', embedded: 'openmaic-media-1' },
+        },
+        { 'openmaic-media-1': Buffer.from(BYTES).toString('base64') },
+      ),
+    );
+    const listener = vi.fn();
+    library.subscribe(listener);
+    library.reportError('embedded');
+    library.reportError('unknown');
+    library.reportError(undefined);
+    expect(library.linkedMediaMissing()).toBe(false);
+    library.reportError('audio/audio-1.mp3');
+    library.reportError('audio/audio-1.mp3');
+    expect(library.linkedMediaMissing()).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('probes one linked file as the player opens and flags a missing folder', () => {
+    const doc = documentWith(
+      {
+        embedded: { mimeType: 'audio/mpeg', embedded: 'openmaic-media-1' },
+        'media/asset-1.mp4': { mimeType: 'video/mp4', src: 'media/asset-1.mp4' },
+        'audio/audio-1.mp3': { mimeType: 'audio/mpeg', src: 'audio/audio-1.mp3' },
+      },
+      {},
+    );
+    const created: HTMLMediaElement[] = [];
+    const createElement = doc.createElement.bind(doc);
+    vi.spyOn(doc, 'createElement').mockImplementation(((tag: string) => {
+      const element = createElement(tag);
+      if (element instanceof HTMLMediaElement) created.push(element);
+      return element;
+    }) as typeof doc.createElement);
+    const library = createMediaLibrary(doc);
+    const listener = vi.fn();
+    library.subscribe(listener);
+    library.probeLinkedMedia();
+    library.probeLinkedMedia(); // one probe at a time
+    expect(created).toHaveLength(1);
+    expect(created[0].tagName).toBe('VIDEO');
+    expect(created[0].getAttribute('src')).toBe('media/asset-1.mp4');
+    expect(created[0].preload).toBe('metadata');
+    created[0].dispatchEvent(new Event('error'));
+    expect(library.linkedMediaMissing()).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(created[0].hasAttribute('src')).toBe(false);
+    library.probeLinkedMedia(); // already known missing
+    expect(created).toHaveLength(1);
+  });
+
+  it('a probe that loads leaves the library healthy; files without linked media never probe', () => {
+    const doc = documentWith({ 'audio/a.mp3': { mimeType: 'audio/mpeg', src: 'audio/a.mp3' } }, {});
+    const spy = vi.spyOn(doc, 'createElement');
+    const library = createMediaLibrary(doc);
+    library.probeLinkedMedia();
+    const probe = spy.mock.results[0].value as HTMLAudioElement;
+    expect(probe.tagName).toBe('AUDIO');
+    probe.dispatchEvent(new Event('loadedmetadata'));
+    probe.dispatchEvent(new Event('error'));
+    expect(library.linkedMediaMissing()).toBe(false);
+
+    const embeddedOnly = documentWith({ k: { embedded: 'openmaic-media-1' } }, {});
+    const none = vi.spyOn(embeddedOnly, 'createElement');
+    createMediaLibrary(embeddedOnly).probeLinkedMedia();
+    expect(none).not.toHaveBeenCalled();
+  });
+
+  it('probes a linked slide image when the media table links no file', () => {
+    const doc = documentWith({ k: { embedded: 'openmaic-media-1' } }, {});
+    const spy = vi.spyOn(doc, 'createElement');
+    const library = createMediaLibrary(doc, { linkedImage: 'images/image-1.png' });
+    library.probeLinkedMedia();
+    const probe = spy.mock.results[0].value as HTMLImageElement;
+    expect(probe.tagName).toBe('IMG');
+    expect(probe.getAttribute('src')).toBe('images/image-1.png');
+    probe.dispatchEvent(new Event('error'));
+    expect(library.linkedMediaMissing()).toBe(true);
+
+    // A linked clip is preferred over the image.
+    const both = documentWith({ a: { mimeType: 'audio/mpeg', src: 'audio/a.mp3' } }, {});
+    const bothSpy = vi.spyOn(both, 'createElement');
+    createMediaLibrary(both, { linkedImage: 'images/image-1.png' }).probeLinkedMedia();
+    expect((bothSpy.mock.results[0].value as HTMLElement).tagName).toBe('AUDIO');
+  });
+});
+
+describe('firstLinkedImage', () => {
+  const slide = (elements: unknown[], background?: unknown): ManifestScene =>
+    ({
+      type: 'slide',
+      title: 's',
+      order: 0,
+      content: { type: 'slide', canvas: { id: 's', elements, background } },
+    }) as unknown as ManifestScene;
+
+  it('finds the first image, background or poster named by relative path', () => {
+    expect(firstLinkedImage([])).toBeUndefined();
+    expect(
+      firstLinkedImage([
+        slide([{ type: 'image', src: 'data:image/png;base64,AAAA' }]),
+        slide([{ type: 'video', poster: 'images/image-2.jpg' }]),
+      ]),
+    ).toBe('images/image-2.jpg');
+    expect(
+      firstLinkedImage([
+        slide([{ type: 'image', src: 'images/image-1.png' }], {
+          type: 'image',
+          image: { src: 'images/image-3.png' },
+        }),
+      ]),
+    ).toBe('images/image-3.png');
+    for (const src of ['', 'blob:x', 'https://a.example/x.png', '/abs.png']) {
+      expect(firstLinkedImage([slide([{ type: 'image', src }])])).toBeUndefined();
+    }
   });
 });

@@ -39,14 +39,24 @@ vi.mock('@/lib/export/classroom-zip-utils', async (importOriginal) => {
   };
 });
 
+import JSZip from 'jszip';
 import {
   buildStandaloneHtmlExport,
+  buildStandaloneZip,
   classroomUrlFor,
+  collectStandaloneMediaBytes,
+  decodeImageDataUri,
+  encodeStandaloneImages,
+  linkStandaloneImages,
   estimateStandaloneHtmlBytes,
+  linkedMediaSrc,
+  STANDALONE_ZIP_README_EN,
+  standaloneZipReadme,
   type StandaloneHtmlExportOptions,
 } from '@/lib/export/standalone-html/build-standalone-html';
 import {
   STANDALONE_HTML_CSP,
+  STANDALONE_HTML_LINKED_FILES_CSP,
   assembleStandaloneHtml,
   serializeJsonForHtmlScript,
 } from '@/lib/export/standalone-html/assemble';
@@ -195,6 +205,125 @@ function imageSources(manifest: ClassroomManifest): string[] {
         )
       : [],
   );
+}
+
+/**
+ * A classroom with stored and legacy narration and a generated video, the
+ * snapshot collectors mocked to return their bytes (one narration is lost).
+ */
+function setupNarratedClassroom() {
+  const AUDIO_BYTES = Uint8Array.from([0x49, 0x44, 0x33, 1, 2, 3, 4, 5]);
+  const LEGACY_BYTES = Uint8Array.from([0xff, 0xfb, 9, 8, 7]);
+  const VIDEO_BYTES = Uint8Array.from([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 1, 2]);
+  const legacyUrl = 'https://cdn.example/narration/legacy.mp3';
+  const scenes = standaloneFixtureScenes(STAGE_ID).map((scene) =>
+    scene.type === 'slide'
+      ? ({
+          ...withSlideElements(
+            scene,
+            (elements) =>
+              [
+                ...elements,
+                {
+                  type: 'video',
+                  id: 'clip',
+                  left: 0,
+                  top: 0,
+                  width: 160,
+                  height: 90,
+                  rotate: 0,
+                  src: 'gen_vid_1',
+                  mediaRef: 'gen_vid_1',
+                  autoplay: false,
+                },
+              ] as PPTElement[],
+          ),
+          actions: [
+            { id: 'sp', type: 'spotlight', elementId: 'leaf', dimOpacity: 0.6 },
+            { id: 's1', type: 'speech', text: 'Stored narration.', audioId: 'aud-1' },
+            { id: 'v1', type: 'play_video', elementId: 'clip' },
+            { id: 's2', type: 'speech', text: 'Legacy narration.', audioUrl: legacyUrl },
+            { id: 's3', type: 'speech', text: 'No audio at all.' },
+            { id: 's4', type: 'speech', text: 'Lost audio.', audioId: 'aud-missing' },
+          ],
+        } as Scene)
+      : scene,
+  );
+  const stage = setupSnapshot(scenes);
+  mocks.buildAssetManifest.mockResolvedValue({
+    entries: [
+      { kind: 'audio', ref: 'aud-1' },
+      { kind: 'audio', ref: 'aud-missing' },
+      { kind: 'image', ref: DEFAULT_FIXTURE_MEDIA.archivedImageRef },
+      { kind: 'video', ref: 'gen_vid_1' },
+    ],
+  });
+  mocks.collectAudioFiles.mockResolvedValue([
+    {
+      zipPath: 'audio/audio-1.mp3',
+      sourceRef: 'aud-1',
+      mimeType: 'audio/mpeg',
+      record: {
+        id: 'aud-1',
+        blob: new Blob([AUDIO_BYTES], { type: 'audio/mpeg' }),
+        format: 'mp3',
+      },
+    },
+  ]);
+  mocks.collectLegacyAudioForExport.mockResolvedValue({
+    audioUrlToPath: new Map([[legacyUrl, 'audio/legacy-1.mp3']]),
+    blobs: [
+      {
+        zipPath: 'audio/legacy-1.mp3',
+        blob: new Blob([LEGACY_BYTES], { type: 'audio/mpeg' }),
+        format: 'mp3',
+        mimeType: 'audio/mpeg',
+        sourceRef: legacyUrl,
+      },
+    ],
+    fullyRescuedAudioIds: new Set(),
+  });
+  mocks.collectMediaFiles.mockImplementation(async (_stageId, entries) =>
+    (entries as Array<{ kind: string; ref: string }>).flatMap((entry, index) => {
+      if (entry.kind === 'image') {
+        return [
+          {
+            zipPath: `media/asset-${index + 1}.png`,
+            posterZipPath: `media/asset-${index + 1}.poster.jpg`,
+            sourceRef: entry.ref,
+            elementId: entry.ref,
+            record: {
+              type: 'image',
+              blob: new Blob([PNG_BYTES], { type: 'image/png' }),
+              mimeType: 'image/png',
+              size: PNG_BYTES.length,
+              prompt: '',
+            },
+          },
+        ];
+      }
+      if (entry.kind === 'video') {
+        return [
+          {
+            zipPath: `media/asset-${index + 1}.mp4`,
+            posterZipPath: `media/asset-${index + 1}.poster.jpg`,
+            sourceRef: entry.ref,
+            elementId: entry.ref,
+            record: {
+              type: 'video',
+              blob: new Blob([VIDEO_BYTES], { type: 'video/mp4' }),
+              mimeType: 'video/mp4',
+              size: VIDEO_BYTES.length,
+              prompt: 'Secret video prompt',
+              poster: new Blob([PNG_BYTES], { type: 'image/png' }),
+            },
+          },
+        ];
+      }
+      return [];
+    }),
+  );
+  return { stage, scenes, AUDIO_BYTES, LEGACY_BYTES, VIDEO_BYTES };
 }
 
 beforeEach(() => {
@@ -668,118 +797,7 @@ describe('standalone HTML export content safety', () => {
   });
 
   it('embeds narration (stored and legacy) and video bytes when narration is included', async () => {
-    const AUDIO_BYTES = Uint8Array.from([0x49, 0x44, 0x33, 1, 2, 3, 4, 5]);
-    const LEGACY_BYTES = Uint8Array.from([0xff, 0xfb, 9, 8, 7]);
-    const VIDEO_BYTES = Uint8Array.from([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 1, 2]);
-    const legacyUrl = 'https://cdn.example/narration/legacy.mp3';
-    const scenes = standaloneFixtureScenes(STAGE_ID).map((scene) =>
-      scene.type === 'slide'
-        ? ({
-            ...withSlideElements(
-              scene,
-              (elements) =>
-                [
-                  ...elements,
-                  {
-                    type: 'video',
-                    id: 'clip',
-                    left: 0,
-                    top: 0,
-                    width: 160,
-                    height: 90,
-                    rotate: 0,
-                    src: 'gen_vid_1',
-                    mediaRef: 'gen_vid_1',
-                    autoplay: false,
-                  },
-                ] as PPTElement[],
-            ),
-            actions: [
-              { id: 'sp', type: 'spotlight', elementId: 'leaf', dimOpacity: 0.6 },
-              { id: 's1', type: 'speech', text: 'Stored narration.', audioId: 'aud-1' },
-              { id: 'v1', type: 'play_video', elementId: 'clip' },
-              { id: 's2', type: 'speech', text: 'Legacy narration.', audioUrl: legacyUrl },
-              { id: 's3', type: 'speech', text: 'No audio at all.' },
-              { id: 's4', type: 'speech', text: 'Lost audio.', audioId: 'aud-missing' },
-            ],
-          } as Scene)
-        : scene,
-    );
-    const stage = setupSnapshot(scenes);
-    mocks.buildAssetManifest.mockResolvedValue({
-      entries: [
-        { kind: 'audio', ref: 'aud-1' },
-        { kind: 'audio', ref: 'aud-missing' },
-        { kind: 'image', ref: DEFAULT_FIXTURE_MEDIA.archivedImageRef },
-        { kind: 'video', ref: 'gen_vid_1' },
-      ],
-    });
-    mocks.collectAudioFiles.mockResolvedValue([
-      {
-        zipPath: 'audio/audio-1.mp3',
-        sourceRef: 'aud-1',
-        mimeType: 'audio/mpeg',
-        record: {
-          id: 'aud-1',
-          blob: new Blob([AUDIO_BYTES], { type: 'audio/mpeg' }),
-          format: 'mp3',
-        },
-      },
-    ]);
-    mocks.collectLegacyAudioForExport.mockResolvedValue({
-      audioUrlToPath: new Map([[legacyUrl, 'audio/legacy-1.mp3']]),
-      blobs: [
-        {
-          zipPath: 'audio/legacy-1.mp3',
-          blob: new Blob([LEGACY_BYTES], { type: 'audio/mpeg' }),
-          format: 'mp3',
-          mimeType: 'audio/mpeg',
-          sourceRef: legacyUrl,
-        },
-      ],
-      fullyRescuedAudioIds: new Set(),
-    });
-    mocks.collectMediaFiles.mockImplementation(async (_stageId, entries) =>
-      (entries as Array<{ kind: string; ref: string }>).flatMap((entry, index) => {
-        if (entry.kind === 'image') {
-          return [
-            {
-              zipPath: `media/asset-${index + 1}.png`,
-              posterZipPath: `media/asset-${index + 1}.poster.jpg`,
-              sourceRef: entry.ref,
-              elementId: entry.ref,
-              record: {
-                type: 'image',
-                blob: new Blob([PNG_BYTES], { type: 'image/png' }),
-                mimeType: 'image/png',
-                size: PNG_BYTES.length,
-                prompt: '',
-              },
-            },
-          ];
-        }
-        if (entry.kind === 'video') {
-          return [
-            {
-              zipPath: `media/asset-${index + 1}.mp4`,
-              posterZipPath: `media/asset-${index + 1}.poster.jpg`,
-              sourceRef: entry.ref,
-              elementId: entry.ref,
-              record: {
-                type: 'video',
-                blob: new Blob([VIDEO_BYTES], { type: 'video/mp4' }),
-                mimeType: 'video/mp4',
-                size: VIDEO_BYTES.length,
-                prompt: 'Secret video prompt',
-                poster: new Blob([PNG_BYTES], { type: 'image/png' }),
-              },
-            },
-          ];
-        }
-        return [];
-      }),
-    );
-
+    const { stage, scenes, AUDIO_BYTES, LEGACY_BYTES, VIDEO_BYTES } = setupNarratedClassroom();
     const result = await buildExport(stage, scenes, {
       strings,
       lang: 'en-US',
@@ -1382,6 +1400,48 @@ describe('assembleStandaloneHtml', () => {
     ).toThrow(/not base64/);
   });
 
+  it('references linked media by src in a document with linked files', () => {
+    const html = assembleStandaloneHtml({
+      ...base,
+      playerScript: '',
+      linkedFiles: true,
+      linkedMedia: [{ key: 'media/asset-1.mp4', mimeType: 'video/mp4', src: 'media/asset-1.mp4' }],
+    });
+    expect(embeddedJson<StandaloneMediaTable>(html, STANDALONE_MEDIA_TABLE_ELEMENT_ID)).toEqual({
+      'media/asset-1.mp4': { mimeType: 'video/mp4', src: 'media/asset-1.mp4' },
+    });
+    expect(html).not.toContain('application/octet-stream');
+    expect(html).toContain(`content="${STANDALONE_HTML_LINKED_FILES_CSP}"`);
+    expect(html).not.toContain(`content="${STANDALONE_HTML_CSP}"`);
+    // Without linked files, the single file's policy is used.
+    expect(assembleStandaloneHtml({ ...base, playerScript: '' })).toContain(
+      `content="${STANDALONE_HTML_CSP}"`,
+    );
+    // Linked media in a document whose policy would block it is refused.
+    expect(() =>
+      assembleStandaloneHtml({
+        ...base,
+        playerScript: '',
+        linkedMedia: [{ key: 'k', mimeType: 'audio/mpeg', src: 'audio/k.mp3' }],
+      }),
+    ).toThrow(/linked files/);
+  });
+
+  it('pins both policies: only img-src and media-src differ, and nothing may be fetched', () => {
+    expect(STANDALONE_HTML_CSP).toBe(
+      "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' data: blob:; " +
+        "style-src 'unsafe-inline' data:; img-src data: blob:; media-src data: blob:; " +
+        'font-src data:; frame-src data: blob:; worker-src data: blob:; ' +
+        "connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
+    );
+    expect(STANDALONE_HTML_LINKED_FILES_CSP).toBe(
+      STANDALONE_HTML_CSP.replace('img-src data: blob:', "img-src 'self' data: blob:").replace(
+        'media-src data: blob:',
+        "media-src 'self' data: blob:",
+      ),
+    );
+  });
+
   it('serializes JSON without raw angle brackets, ampersands or line separators', () => {
     const value = { text: '</script><!--<script>&\u2028\u2029' };
     const serialized = serializeJsonForHtmlScript(value);
@@ -1402,5 +1462,496 @@ describe('classroomUrlFor', () => {
       'https://maic.example/classroom/stage%201%2F%23%3F',
     );
     expect(classroomUrlFor('https://maic.example//', 'a')).toBe('https://maic.example/classroom/a');
+  });
+});
+
+describe('standalone HTML ZIP variant', () => {
+  const ZIP_DATE = new Date(2026, 0, 2, 3, 4, 6);
+
+  async function narratedExport(options: Partial<StandaloneHtmlExportOptions>) {
+    const { stage, scenes, ...bytes } = setupNarratedClassroom();
+    const result = await buildStandaloneHtmlExport(stage, scenes, {
+      strings,
+      lang: 'en-US',
+      fetchAsset,
+      fetchImage,
+      includeNarration: true,
+      zipDate: ZIP_DATE,
+      ...options,
+    });
+    return { result, ...bytes };
+  }
+
+  const withoutExportTime = (html: string) => html.replace(/"exportedAt":"[^"]*"/g, '');
+
+  async function readZip(blob: Blob) {
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer(), { checkCRC32: true });
+    const files = Object.keys(zip.files).sort();
+    const bytes = async (path: string) => new Uint8Array(await zip.file(path)!.async('uint8array'));
+    const text = async (path: string) => zip.file(path)!.async('string');
+    return { zip, files, bytes, text };
+  }
+
+  /** Size of the ZIP's classroom.html for the narrated classroom (no ceiling). */
+  async function zipPageBytes(options: Partial<StandaloneHtmlExportOptions> = {}) {
+    const { result } = await narratedExport({ ...options, format: 'zip' });
+    return (await readZip(result.blob)).bytes('classroom.html').then((page) => page.length);
+  }
+
+  it('ships classroom.html, a README, the images and each clip as files, stored uncompressed', async () => {
+    const { result, AUDIO_BYTES, LEGACY_BYTES, VIDEO_BYTES } = await narratedExport({
+      format: 'zip',
+      zipReadme: 'Localized readme',
+    });
+    expect(result.format).toBe('zip');
+    expect(result.fileName).toBe('Photosynthesis_ _Light_ & _Life_.zip');
+    expect(result.blob.type).toBe('application/zip');
+    expect(result.byteSize).toBe(result.blob.size);
+    expect(result.missingAudioCount).toBe(1);
+    expect(result.singleFileBytes).toBeUndefined();
+
+    const { zip, files, bytes, text } = await readZip(result.blob);
+    expect(files).toEqual([
+      'README.txt',
+      'audio/audio-1.mp3',
+      'audio/legacy-1.mp3',
+      'classroom.html',
+      'images/image-1.png',
+      'images/image-2.png',
+      'images/image-3.png',
+      'media/asset-2.mp4',
+    ]);
+    // Stored entries, in the order a reader extracts them: the page first.
+    expect(Object.keys(zip.files)[0]).toBe('classroom.html');
+    for (const entry of Object.values(zip.files)) {
+      expect(
+        (entry as unknown as { _data: { compression: { magic: string } } })._data.compression.magic,
+      ).toBe('\x00\x00');
+      expect(entry.date.getFullYear()).toBe(2026);
+    }
+    expect(await bytes('audio/audio-1.mp3')).toEqual(AUDIO_BYTES);
+    expect(await bytes('audio/legacy-1.mp3')).toEqual(LEGACY_BYTES);
+    expect(await bytes('media/asset-2.mp4')).toEqual(VIDEO_BYTES);
+    for (const image of ['images/image-1.png', 'images/image-2.png', 'images/image-3.png']) {
+      expect(await bytes(image)).toEqual(PNG_BYTES);
+    }
+
+    const readme = await text('README.txt');
+    expect(readme.startsWith('﻿Localized readme\r\n\r\n')).toBe(true);
+    expect(readme).toContain(STANDALONE_ZIP_README_EN);
+
+    const html = await text('classroom.html');
+    expect(embeddedJson<StandaloneMediaTable>(html, STANDALONE_MEDIA_TABLE_ELEMENT_ID)).toEqual({
+      'audio/audio-1.mp3': { mimeType: 'audio/mpeg', src: 'audio/audio-1.mp3' },
+      'audio/legacy-1.mp3': { mimeType: 'audio/mpeg', src: 'audio/legacy-1.mp3' },
+      'media/asset-2.mp4': { mimeType: 'video/mp4', src: 'media/asset-2.mp4' },
+    });
+    expect(html).not.toContain('application/octet-stream');
+    expect(html).not.toContain('data:image/png');
+    expect(html).toContain(`content="${STANDALONE_HTML_LINKED_FILES_CSP}"`);
+    expect(html).toContain("connect-src 'none'");
+    // Every image slot and the poster name a shipped file by relative path.
+    const manifest = embeddedJson<ClassroomManifest>(html, STANDALONE_MANIFEST_ELEMENT_ID);
+    const sources = [...imageSources(manifest)];
+    const clip = slideOf(manifest).elements.find((e) => e.id === 'clip') as { poster?: string };
+    expect(sources.length).toBeGreaterThan(0);
+    for (const src of [...sources, clip.poster!]) expect(files).toContain(src);
+
+    // Apart from the image sources, the manifest is the one the single file carries.
+    const single = await narratedExport({ format: 'html' });
+    const singleHtml = await single.result.blob.text();
+    const singleManifest = embeddedJson<ClassroomManifest>(
+      singleHtml,
+      STANDALONE_MANIFEST_ELEMENT_ID,
+    );
+    const pathToUri = new Map<string, string>();
+    imageSources(manifest).forEach((src, index) =>
+      pathToUri.set(src, imageSources(singleManifest)[index]),
+    );
+    const inlined = JSON.parse(
+      JSON.stringify(manifest).replace(/"images\/image-\d+\.png"/g, (match) =>
+        JSON.stringify(
+          pathToUri.get(JSON.parse(match)) ?? `data:image/png;base64,${FIXTURE_PNG_BASE64}`,
+        ),
+      ),
+    );
+    expect({ ...inlined, exportedAt: '' }).toEqual({ ...singleManifest, exportedAt: '' });
+    expect(html).not.toContain('cdn.example');
+  });
+
+  it('estimates the single file from the linked manifest exactly as from the inlined one', async () => {
+    const zip = await readZip((await narratedExport({ format: 'zip' })).result.blob);
+    const linkedManifest = embeddedJson<ClassroomManifest>(
+      await zip.text('classroom.html'),
+      STANDALONE_MANIFEST_ELEMENT_ID,
+    );
+    const single = await (await narratedExport({ format: 'html' })).result.blob.text();
+    const inlinedManifest = embeddedJson<ClassroomManifest>(single, STANDALONE_MANIFEST_ELEMENT_ID);
+    const files = await Promise.all(
+      zip.files
+        .filter((path) => path.startsWith('images/'))
+        .map(async (path) => ({
+          path,
+          blob: new Blob([await zip.bytes(path)], { type: 'image/png' }),
+        })),
+    );
+    const payloads = [{ blob: new Blob([new Uint8Array(10)]) }];
+    expect(estimateStandaloneHtmlBytes(linkedManifest, payloads, files)).toBe(
+      estimateStandaloneHtmlBytes(inlinedManifest, payloads),
+    );
+  });
+
+  it('auto keeps the single file, byte for byte, while it fits the ceiling', async () => {
+    const auto = await narratedExport({ format: 'auto' });
+    const html = await narratedExport({});
+    expect(auto.result.format).toBe('html');
+    expect(auto.result.fileName).toBe('Photosynthesis_ _Light_ & _Life_.html');
+    expect(withoutExportTime(await auto.result.blob.text())).toBe(
+      withoutExportTime(await html.result.blob.text()),
+    );
+    expect(auto.result.singleFileBytes).toBeUndefined();
+  });
+
+  it('auto builds the ZIP, without encoding any media, when the estimate passes the ceiling', async () => {
+    // The estimate allows 1 MB for the player assets (here a few bytes), so a
+    // ceiling just above the page puts the estimate over it.
+    const maxBytes = (await zipPageBytes()) + 1000;
+    const read = vi.spyOn(Blob.prototype, 'arrayBuffer');
+    // Media payloads and images are typed; the CRC pass reads untyped slices.
+    const typedReads = () =>
+      read.mock.contexts.filter((blob) => /^(audio|video|image)\//.test((blob as Blob).type))
+        .length;
+    try {
+      await narratedExport({ format: 'html' });
+      expect(typedReads()).toBe(6); // 3 clips and 3 images base64-encoded for the single file
+      read.mockClear();
+
+      await expect(narratedExport({ format: 'html', maxBytes })).rejects.toMatchObject({
+        name: 'StandaloneHtmlTooLargeError',
+        kind: 'single-file',
+      });
+      read.mockClear();
+      const { result } = await narratedExport({ format: 'auto', maxBytes });
+      expect(result.format).toBe('zip');
+      expect(result.singleFileBytes).toBeGreaterThan(maxBytes);
+      expect(typedReads()).toBe(0);
+      const { files } = await readZip(result.blob);
+      expect(files).toContain('classroom.html');
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it('auto builds the ZIP when only the assembled document passes the ceiling', async () => {
+    // A player larger than the estimate allows for: the estimate passes, the
+    // assembled single file does not, and the ZIP's page (no inlined media) fits.
+    const oversizedPlayer = 'x'.repeat(1.5 * 1024 * 1024);
+    const withPlayer: Partial<StandaloneHtmlExportOptions> = {
+      fetchAsset: async (assetPath: string) =>
+        assetPath === STANDALONE_PLAYER_ASSETS.script ? oversizedPlayer : fetchAsset(assetPath),
+    };
+    const page = await zipPageBytes(withPlayer);
+    const single = (await narratedExport({ ...withPlayer, format: 'html' })).result.byteSize;
+    expect(single).toBeGreaterThan(page);
+    const maxBytes = Math.floor((page + single) / 2);
+    const { result } = await narratedExport({ ...withPlayer, format: 'auto', maxBytes });
+    expect(result.format).toBe('zip');
+    expect(result.singleFileBytes).toBe(single);
+  });
+
+  it('refuses, as a page too large, a ZIP whose classroom.html alone passes the ceiling', async () => {
+    const page = await zipPageBytes();
+    const attempt = narratedExport({ format: 'auto', maxBytes: page - 1 });
+    await expect(attempt).rejects.toBeInstanceOf(StandaloneHtmlTooLargeError);
+    await expect(attempt).rejects.toMatchObject({ kind: 'page', estimatedBytes: page });
+    await expect(narratedExport({ format: 'auto', maxBytes: page })).resolves.toMatchObject({
+      result: { format: 'zip' },
+    });
+  });
+
+  it('ships the images of a classroom without playback media, with no media table', async () => {
+    const scenes = standaloneFixtureScenes(STAGE_ID);
+    const stage = setupSnapshot(scenes);
+    const result = await buildStandaloneHtmlExport(stage, scenes, {
+      strings,
+      lang: 'en-US',
+      fetchAsset,
+      fetchImage,
+      format: 'zip',
+    });
+    const { files, text } = await readZip(result.blob);
+    expect(files).toEqual([
+      'README.txt',
+      'classroom.html',
+      'images/image-1.png',
+      'images/image-2.png',
+    ]);
+    const html = await text('classroom.html');
+    expect(html).not.toContain(STANDALONE_MEDIA_TABLE_ELEMENT_ID);
+    expect(html).toContain(`content="${STANDALONE_HTML_LINKED_FILES_CSP}"`);
+  });
+
+  it('never lets a file overwrite classroom.html or README.txt, or leave the folder', async () => {
+    const page = {
+      manifest: {
+        formatVersion: 1,
+        exportedAt: '',
+        appVersion: '',
+        stage: { name: 'x', createdAt: 0, updatedAt: 0 },
+        agents: [],
+        scenes: [],
+        mediaIndex: {},
+      } as ClassroomManifest,
+      config: { strings },
+      playerScript: '',
+      playerStyle: '',
+      lang: 'en-US',
+    };
+    const blob = new Blob(['x'], { type: 'audio/mpeg' });
+    for (const key of ['classroom.html', 'README.txt', '../evil.mp3', '/abs.mp3']) {
+      await expect(
+        buildStandaloneZip(page, { payloads: [{ key, mimeType: 'audio/mpeg', blob }] }),
+      ).rejects.toThrow(/unusable file path/);
+    }
+    await expect(
+      buildStandaloneZip(page, {
+        payloads: [{ key: 'images/a.png', mimeType: 'image/png', blob }],
+        files: [{ path: 'images/a.png', blob }],
+      }),
+    ).rejects.toThrow(/unusable file path/);
+  });
+
+  it('refuses, before computing any CRC, an archive above 4 GiB', async () => {
+    const huge = new Blob(['x'], { type: 'video/mp4' });
+    Object.defineProperty(huge, 'size', { value: 0xffffffff });
+    const slice = vi.spyOn(huge, 'slice');
+    const attempt = buildStandaloneZip(
+      {
+        manifest: {
+          formatVersion: 1,
+          exportedAt: '',
+          appVersion: '',
+          stage: { name: 'x', createdAt: 0, updatedAt: 0 },
+          agents: [],
+          scenes: [],
+          mediaIndex: {},
+        } as ClassroomManifest,
+        config: { strings },
+        playerScript: '',
+        playerStyle: '',
+        lang: 'en-US',
+      },
+      { payloads: [{ key: 'media/huge.mp4', mimeType: 'video/mp4', blob: huge }] },
+    );
+    await expect(attempt).rejects.toMatchObject({
+      name: 'StandaloneHtmlTooLargeError',
+      kind: 'archive',
+    });
+    expect(slice).not.toHaveBeenCalled();
+  });
+
+  describe('image sources', () => {
+    const PNG_URI = `data:image/png;base64,${FIXTURE_PNG_BASE64}`;
+    const SVG_URI = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="red"/></svg>')}`;
+    const OTHER_URI = 'data:application/x-unknown;base64,AAAA';
+    const STORED = Uint8Array.from([1, 2, 3, 4, 5, 6]);
+
+    function manifestWith(elements: unknown[], background?: unknown): ClassroomManifest {
+      return {
+        formatVersion: 1,
+        exportedAt: '2026-01-01T00:00:00.000Z',
+        appVersion: '',
+        stage: { name: 'x', createdAt: 0, updatedAt: 0 },
+        agents: [],
+        mediaIndex: {
+          'media/asset-1.png': {
+            type: 'generated',
+            sourceRef: 'img_stored',
+            mimeType: 'image/png',
+          },
+          'media/asset-2.png': { type: 'generated', sourceRef: 'img_chart', mimeType: 'image/png' },
+        },
+        scenes: [
+          {
+            type: 'slide',
+            title: 's',
+            order: 0,
+            content: {
+              type: 'slide',
+              canvas: {
+                id: 's',
+                viewportSize: 1000,
+                viewportRatio: 0.5625,
+                theme: {
+                  backgroundColor: '#fff',
+                  themeColors: ['#000'],
+                  fontColor: '#000',
+                  fontName: 'Arial',
+                },
+                elements,
+                ...(background ? { background } : {}),
+              },
+            },
+          },
+        ],
+      } as unknown as ClassroomManifest;
+    }
+    const box = { left: 0, top: 0, width: 10, height: 10, rotate: 0 };
+    const elements = [
+      { ...box, type: 'image', id: 'a', src: PNG_URI, fixedRatio: true },
+      { ...box, type: 'image', id: 'b', src: PNG_URI, fixedRatio: true },
+      { ...box, type: 'image', id: 'c', src: OTHER_URI, fixedRatio: true },
+      { ...box, type: 'image', id: 'd', src: 'img_stored', fixedRatio: true },
+      {
+        ...box,
+        type: 'shape',
+        id: 'e',
+        viewBox: [1, 1],
+        path: 'M0 0',
+        fixedRatio: false,
+        fill: '#000',
+        pattern: SVG_URI,
+      },
+      { ...box, type: 'video', id: 'f', src: '', poster: PNG_URI, autoplay: false },
+      {
+        ...box,
+        type: 'chart',
+        id: 'g',
+        chartType: 'bar',
+        data: { labels: ['a'], legends: ['l'], series: [[1]] },
+        themeColors: ['#000'],
+        importedStyle: {
+          series: [{ pointImages: { '0': 'img_chart', '1': PNG_URI, '2': 'img_stored' } }],
+        },
+      },
+    ];
+    const background = { type: 'image', image: { src: SVG_URI, size: 'cover' } };
+
+    async function prepareBoth() {
+      const manifest = manifestWith(elements, background);
+      const snapshot = {
+        manifest,
+        files: new Map([
+          ['media/asset-1.png', new Blob([STORED], { type: 'image/png' })],
+          ['media/asset-2.png', new Blob([PNG_BYTES], { type: 'image/png' })],
+        ]),
+        videoPosters: new Map<string, Blob>(),
+      };
+      const bytes = await collectStandaloneMediaBytes(snapshot, { fetchImage: async () => null });
+      const linked = await linkStandaloneImages(bytes, manifest);
+      return {
+        linked,
+        zip: prepareStandaloneManifest(manifest, linked.resolution),
+        single: prepareStandaloneManifest(manifest, await encodeStandaloneImages(bytes)),
+      };
+    }
+    const elementOf = (manifest: ClassroomManifest, id: string) =>
+      slideOf(manifest).elements.find((element) => element.id === id) as unknown as Record<
+        string,
+        unknown
+      >;
+
+    it('keeps chart point images inline in the ZIP: the chart wraps them in a data: SVG', async () => {
+      const { linked, zip, single } = await prepareBoth();
+      const points = (manifest: ClassroomManifest) =>
+        (elementOf(manifest, 'g').importedStyle as { series: Array<{ pointImages: object }> })
+          .series[0].pointImages;
+      expect(points(zip.manifest)).toEqual({
+        '0': PNG_URI,
+        '1': PNG_URI,
+        '2': `data:image/png;base64,${Buffer.from(STORED).toString('base64')}`,
+      });
+      expect(points(zip.manifest)).toEqual(points(single.manifest));
+      // A ref named only by a chart (img_chart) ships no file; one also shown
+      // as an image (img_stored) does: the stored image, the SVG and the PNG URI.
+      expect(linked.files).toHaveLength(3);
+      expect(elementOf(zip.manifest, 'd').src).toMatch(/^images\/image-\d+\.png$/);
+    });
+
+    it('ships inline data: images, backgrounds, patterns and posters as files in the ZIP, once per URI', async () => {
+      const { linked, zip, single } = await prepareBoth();
+      const pathOf = (id: string, key = 'src') => elementOf(zip.manifest, id)[key] as string;
+      expect(pathOf('a')).toMatch(/^images\/image-\d+\.png$/);
+      expect(pathOf('b')).toBe(pathOf('a'));
+      expect(pathOf('f', 'poster')).toBe(pathOf('a'));
+      expect(pathOf('e', 'pattern')).toMatch(/^images\/image-\d+\.svg$/);
+      const zipBackground = slideOf(zip.manifest).background as { image: { src: string } };
+      expect(zipBackground.image.src).toBe(pathOf('e', 'pattern'));
+      // A MIME type no file extension conveys stays inline.
+      expect(pathOf('c')).toBe(OTHER_URI);
+      expect(linked.files.map((file) => file.path).sort()).toEqual([
+        'images/image-1.png',
+        'images/image-2.svg',
+        'images/image-3.png',
+      ]);
+      const fileAt = (path: string) => linked.files.find((file) => file.path === path)!.blob;
+      expect(new Uint8Array(await fileAt(pathOf('a')).arrayBuffer())).toEqual(PNG_BYTES);
+      expect(await fileAt(pathOf('e', 'pattern')).text()).toContain('<rect width="4"');
+      expect(fileAt(pathOf('e', 'pattern')).type).toBe('image/svg+xml');
+      expect(JSON.stringify(zip.manifest)).not.toContain(SVG_URI);
+
+      // The single file keeps every inline source exactly as it was.
+      expect(elementOf(single.manifest, 'a').src).toBe(PNG_URI);
+      expect(elementOf(single.manifest, 'e').pattern).toBe(SVG_URI);
+      expect((slideOf(single.manifest).background as { image: { src: string } }).image.src).toBe(
+        SVG_URI,
+      );
+      expect(elementOf(single.manifest, 'f').poster).toBe(PNG_URI);
+      expect(zip.unresolved).toEqual(single.unresolved);
+
+      // The single file's size is still estimated exactly from the ZIP's manifest.
+      expect(estimateStandaloneHtmlBytes(zip.manifest, [], linked.files)).toBe(
+        estimateStandaloneHtmlBytes(single.manifest, []),
+      );
+    });
+
+    it('decodes only well-formed image data: URIs', () => {
+      expect(decodeImageDataUri(PNG_URI)?.type).toBe('image/png');
+      expect(decodeImageDataUri('data:image/png;base64,@@@')).toBeUndefined();
+      expect(decodeImageDataUri(OTHER_URI)).toBeUndefined();
+      expect(decodeImageDataUri('data:image/svg+xml,%E0%A4%A')).toBeUndefined();
+      expect(decodeImageDataUri('not a data uri')).toBeUndefined();
+    });
+
+    it('a classroom whose image is already a data: URI ships it as a file in the ZIP', async () => {
+      const scenes = standaloneFixtureScenes(STAGE_ID).map((scene) =>
+        withSlideElements(
+          scene,
+          (existing) =>
+            [
+              ...existing,
+              { ...box, type: 'image', id: 'inline', src: PNG_URI, fixedRatio: true },
+            ] as PPTElement[],
+        ),
+      );
+      const stage = setupSnapshot(scenes);
+      const options = { strings, lang: 'en-US', fetchAsset, fetchImage } as const;
+      const result = await buildStandaloneHtmlExport(stage, scenes, { ...options, format: 'zip' });
+      const { files, text, bytes } = await readZip(result.blob);
+      const html = await text('classroom.html');
+      expect(html).not.toContain(FIXTURE_PNG_BASE64);
+      const inline = slideOf(
+        embeddedJson<ClassroomManifest>(html, STANDALONE_MANIFEST_ELEMENT_ID),
+      ).elements.find((element) => element.id === 'inline') as { src: string };
+      expect(files).toContain(inline.src);
+      expect(await bytes(inline.src)).toEqual(PNG_BYTES);
+      const single = await buildStandaloneHtmlExport(setupSnapshot(scenes), scenes, options);
+      expect(await single.blob.text()).toContain(`"src":"${PNG_URI}"`);
+    });
+  });
+
+  it('encodes each path segment of a linked source', () => {
+    expect(linkedMediaSrc('media/asset-1.mp4')).toBe('media/asset-1.mp4');
+    expect(linkedMediaSrc('media/a b#?.mp4')).toBe('media/a%20b%23%3F.mp4');
+  });
+
+  it('writes the README in the UI locale, then English, once', () => {
+    expect(standaloneZipReadme()).toBe(`﻿${STANDALONE_ZIP_README_EN}\r\n`);
+    expect(standaloneZipReadme(STANDALONE_ZIP_README_EN)).toBe(standaloneZipReadme());
+    expect(standaloneZipReadme('先解压')).toBe(`﻿先解压\r\n\r\n${STANDALONE_ZIP_README_EN}\r\n`);
+    const en = JSON.parse(
+      readFileSync(path.join(process.cwd(), 'lib/i18n/locales/en-US.json'), 'utf8'),
+    ) as { export: { htmlZipReadme: string } };
+    expect(en.export.htmlZipReadme).toBe(STANDALONE_ZIP_README_EN);
   });
 });

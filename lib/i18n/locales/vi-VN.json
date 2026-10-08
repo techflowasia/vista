@@ -79,7 +79,11 @@
     "htmlSilent": "Không có lời dẫn",
     "htmlSilentDesc": "Tệp nhỏ hơn: phụ đề theo tốc độ đọc; không kèm video",
     "htmlLarge": "Tệp đã xuất có dung lượng {{size}} MB và có thể mở chậm. Hãy xuất không có lời dẫn để có tệp nhỏ hơn.",
-    "htmlTooLarge": "Lớp học này sẽ tạo tệp khoảng {{size}} MB, quá lớn cho một tệp HTML. Hãy xuất không có lời dẫn.",
+    "htmlTooLarge": "Lớp học này sẽ tạo bản xuất khoảng {{size}} MB, quá lớn để lưu ngay cả dưới dạng ZIP. Hãy xuất không có lời dẫn.",
+    "htmlPageTooLarge": "Ngay cả khi hình ảnh và phương tiện được lưu thành tệp riêng, trang của lớp học này vẫn khoảng {{size}} MB, quá lớn để mở ổn định. Phương tiện trong các cảnh tương tác vẫn nằm trong trang; hãy xuất không có lời dẫn để loại bỏ chúng.",
+    "htmlZipFallback": "Lớp học này quá lớn cho một tệp HTML (khoảng {{size}} MB) nên đã được lưu dưới dạng ZIP: classroom.html cùng hình ảnh và phương tiện trong các thư mục bên cạnh.",
+    "htmlZipFallbackDesc": "Hãy giải nén toàn bộ tệp ZIP rồi mở classroom.html.",
+    "htmlZipReadme": "Trước tiên hãy giải nén toàn bộ tệp ZIP này, sau đó mở classroom.html trong trình duyệt web. Giữ các thư mục (images, audio, media) cạnh classroom.html: trang hiển thị hình ảnh và phát lời dẫn, video từ các thư mục đó. Nếu mở trực tiếp trong ZIP mà không giải nén, trang sẽ không tìm thấy chúng.",
     "htmlPlayer": {
       "previous": "Trước",
       "next": "Tiếp",
@@ -116,7 +120,8 @@
       "captions": "Phụ đề",
       "discussionTitle": "Thảo luận",
       "discussionContinueOnline": "Thảo luận trong lớp học trực tuyến",
-      "discussionDismiss": "Đóng"
+      "discussionDismiss": "Đóng",
+      "linkedFilesUnavailable": "Không thể tải một số hình ảnh, lời dẫn hoặc video. Nếu bạn mở classroom.html ngay trong tệp ZIP, hãy giải nén toàn bộ ZIP trước."
     },
     "scriptMd": "Tải kịch bản (.md)",
     "scriptMdDesc": "Văn bản tường thuật dưới dạng Markdown",
