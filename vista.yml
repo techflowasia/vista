@@ -1,5 +1,6 @@
 services:
   vista:
+    container_name: vista-app
     build:
       context: .
       args:
@@ -67,6 +68,7 @@ services:
   # `pnpm db:up` runs this service definition as a separate development
   # database (its own project and volume, see docker-compose.db.yml).
   postgres:
+    container_name: vista-db
     image: postgres:16
     environment:
       - POSTGRES_DB=${VISTA_DB_NAME:-openmaic}
@@ -102,6 +104,7 @@ services:
   # replies on app-initiated connections. The export ZIP is self-contained, so
   # the render needs no outbound at all.
   render-service:
+    container_name: vista-render
     build: ./render-service
     profiles:
       - video-export
