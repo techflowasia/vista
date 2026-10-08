@@ -30,6 +30,16 @@ else if(a.includes('build')&&process.env.MODE==='failure') process.exit(7);
   return { result, calls: (await readFile(calls, 'utf8')).trim().split('\n').map(JSON.parse) };
 }
 
+test('Docker build selects Webpack while retaining bounded heap and package preparation', async () => {
+  const dockerfile = await readFile('Dockerfile', 'utf8');
+  assert.match(dockerfile, /ARG VISTA_BUILD_HEAP_MB="1536"/);
+  assert.match(
+    dockerfile,
+    /RUN VISTA_BUILD_LOW_MEMORY=\$VISTA_BUILD_LOW_MEMORY NODE_OPTIONS=--max-old-space-size=\$VISTA_BUILD_HEAP_MB pnpm build --webpack/,
+  );
+  assert.match(dockerfile, /NODE_OPTIONS=--max-old-space-size=1024 pnpm run build:packages/);
+});
+
 test('bounded builder is scoped, verified, removed before no-build startup', async (t) => {
   const { result, calls } = await run(t, 'success');
   assert.equal(result.status, 0, result.stderr);

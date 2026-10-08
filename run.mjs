@@ -224,7 +224,7 @@ try {
     build:
       args:
         VISTA_BUILD_LOW_MEMORY: '1'
-        VISTA_BUILD_HEAP_MB: '1536'
+        VISTA_BUILD_HEAP_MB: '2048'
     mem_limit: 1g
     ports: !override
       - '127.0.0.1:3001:3000'
