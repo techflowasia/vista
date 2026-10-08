@@ -20,7 +20,12 @@ import {
 } from '../use-export-classroom';
 import type { InlineReport } from '../inline-assets';
 import type { ClassroomManifest } from '../classroom-zip-types';
-import { assembleStandaloneHtml } from './assemble';
+import {
+  assembleStandaloneHtmlParts,
+  serializeJsonForHtmlScript,
+  type StandaloneEmbeddedMedia,
+} from './assemble';
+import { STANDALONE_HTML_MAX_BYTES, StandaloneHtmlTooLargeError } from './limits';
 import {
   STANDALONE_PLAYER_ASSETS,
   type StandalonePlayerConfig,
@@ -50,16 +55,38 @@ function imageMimeFromUrl(url: string): string | undefined {
   return IMAGE_EXTENSION_MIME[extension];
 }
 
+/**
+ * Encode bytes as base64 pieces that concatenate into one valid string; works
+ * in the browser and in Node. Kept as pieces so a large clip never has to be
+ * held as one giant string.
+ */
+export async function blobToBase64Parts(blob: Blob): Promise<string[]> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  // Encoded in chunks (a multiple of 3 bytes, so the pieces concatenate into
+  // one valid string) to keep the intermediate binary strings small for
+  // multi-megabyte media.
+  const parts: string[] = [];
+  const chunk = 0x8000 * 3;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    const slice = bytes.subarray(offset, offset + chunk);
+    let binary = '';
+    for (let index = 0; index < slice.length; index += 0x8000) {
+      binary += String.fromCharCode(...slice.subarray(index, index + 0x8000));
+    }
+    parts.push(btoa(binary));
+  }
+  return parts;
+}
+
+/** Encode bytes as base64; works in the browser and in Node. */
+export async function blobToBase64(blob: Blob): Promise<string> {
+  return (await blobToBase64Parts(blob)).join('');
+}
+
 /** Encode bytes as a `data:` URI; works in the browser and in Node. */
 export async function blobToDataUri(blob: Blob, fallbackMimeType?: string): Promise<string> {
   const mimeType = blob.type || fallbackMimeType || 'application/octet-stream';
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  const chunk = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
-  }
-  return `data:${mimeType};base64,${btoa(binary)}`;
+  return `data:${mimeType};base64,${await blobToBase64(blob)}`;
 }
 
 /** Fetch a concrete image URL through the app's media fetch path; `null` on any failure. */
@@ -77,9 +104,47 @@ async function fetchImageBytes(url: string): Promise<Blob | null> {
   }
 }
 
+const VIDEO_EXTENSION_MIME: Record<string, string> = {
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  mp4: 'video/mp4',
+  ogv: 'video/ogg',
+  webm: 'video/webm',
+};
+
+function urlExtension(url: string): string {
+  const path = url.split(/[?#]/)[0] ?? '';
+  return path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+}
+
+/** Fetch a concrete video URL through the app's media fetch path; `null` on any failure. */
+async function fetchVideoBytes(url: string): Promise<Blob | null> {
+  try {
+    const response = await fetchMediaUrl(url, 15_000);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    if (blob.size === 0) return null;
+    if (blob.type.startsWith('video/')) return blob;
+    const guessed = VIDEO_EXTENSION_MIME[urlExtension(url)];
+    return guessed ? new Blob([blob], { type: guessed }) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface StandaloneMediaDeps {
-  /** Fetch bytes for a concrete (URL) reference no archive payload backs. */
+  /** Fetch bytes for a concrete (URL) image reference no archive payload backs. */
   fetchImage?: (url: string) => Promise<Blob | null>;
+  /** Fetch bytes for a concrete (URL) video source no archive payload backs. */
+  fetchVideo?: (url: string) => Promise<Blob | null>;
+}
+
+export interface StandaloneMediaOptions {
+  /**
+   * Resolve playback media (narration and video bytes) too. Without it the
+   * resolution carries no `playback` and the file plays without media.
+   */
+  playbackMedia?: boolean;
 }
 
 /**
@@ -91,8 +156,10 @@ export interface StandaloneMediaDeps {
 export async function resolveStandaloneMedia(
   snapshot: Pick<ClassroomExportSnapshot, 'manifest' | 'files' | 'videoPosters'>,
   deps: StandaloneMediaDeps = {},
+  options: StandaloneMediaOptions = {},
 ): Promise<StandaloneMediaResolution> {
   const fetchImage = deps.fetchImage ?? fetchImageBytes;
+  const fetchVideo = deps.fetchVideo ?? fetchVideoBytes;
   const pathByRef = new Map<string, string>();
   for (const [path, entry] of Object.entries(snapshot.manifest.mediaIndex)) {
     if (entry.sourceRef && !entry.missing && entry.type !== 'audio') {
@@ -126,17 +193,83 @@ export async function resolveStandaloneMedia(
 
   const dataUris = new Map<string, string>();
   const videoPosters = new Map<string, string>();
+  const videos = new Map<string, string>();
+  const fetchedVideos = new Map<string, Blob>();
   const references = collectStandaloneMediaReferences(snapshot.manifest);
   await mapWithConcurrency(references, 4, async ({ ref, role }) => {
     if (role === 'video') {
       const poster = snapshot.videoPosters.get(ref);
       if (poster) videoPosters.set(ref, await blobToDataUri(poster, 'image/jpeg'));
+      if (!options.playbackMedia) return;
+      // Generated and stored videos come with the snapshot; a direct video
+      // URL no stored row backs is fetched now, like images.
+      const path = pathByRef.get(ref);
+      if (path && isPlayableArchivePath(snapshot, path, 'video/')) {
+        videos.set(ref, path);
+      } else if (!path && isConcreteMediaAddress(ref)) {
+        const fetched = await fetchVideo(ref);
+        if (fetched) {
+          const extension = VIDEO_EXTENSION_MIME[urlExtension(ref)] ? urlExtension(ref) : 'mp4';
+          const key = `media/linked-${fetchedVideos.size + 1}.${extension}`;
+          fetchedVideos.set(key, fetched);
+          videos.set(ref, key);
+        }
+      }
       return;
     }
     const dataUri = await resolveRef(ref);
     if (dataUri) dataUris.set(ref, dataUri);
   });
-  return { dataUris, videoPosters };
+
+  if (!options.playbackMedia) return { dataUris, videoPosters };
+  const audio = new Set<string>();
+  for (const [path, entry] of Object.entries(snapshot.manifest.mediaIndex)) {
+    if (entry.type === 'audio' && !entry.missing && isPlayableArchivePath(snapshot, path)) {
+      audio.add(path);
+    }
+  }
+  return { dataUris, videoPosters, playback: { audio, videos, files: fetchedVideos } };
+}
+
+/** Whether the snapshot carries non-empty bytes at `path` (of the given MIME family). */
+function isPlayableArchivePath(
+  snapshot: Pick<ClassroomExportSnapshot, 'manifest' | 'files'>,
+  path: string,
+  mimePrefix?: string,
+): boolean {
+  const blob = snapshot.files.get(path);
+  if (!blob || blob.size === 0) return false;
+  if (!mimePrefix) return true;
+  const mimeType = snapshot.manifest.mediaIndex[path]?.mimeType || blob.type;
+  return mimeType.startsWith(mimePrefix);
+}
+
+/** One playback media payload: its key (archive path), MIME type and bytes. */
+export interface StandalonePlaybackPayload {
+  key: string;
+  mimeType: string;
+  blob: Blob;
+}
+
+/**
+ * The bytes of the playback media a prepared manifest names, read from the
+ * snapshot. Format-neutral: the single file embeds them, and an export that
+ * ships a `media/` folder next to the page can write the same payloads.
+ */
+export function collectStandalonePlaybackPayloads(
+  snapshot: Pick<ClassroomExportSnapshot, 'manifest' | 'files'>,
+  paths: readonly string[],
+  media?: Pick<StandaloneMediaResolution, 'playback'>,
+): StandalonePlaybackPayload[] {
+  const payloads: StandalonePlaybackPayload[] = [];
+  for (const key of paths) {
+    const blob = snapshot.files.get(key) ?? media?.playback?.files?.get(key);
+    if (!blob || blob.size === 0) continue;
+    const mimeType =
+      snapshot.manifest.mediaIndex[key]?.mimeType || blob.type || 'application/octet-stream';
+    payloads.push({ key, mimeType, blob });
+  }
+  return payloads;
 }
 
 /**
@@ -193,6 +326,13 @@ async function fetchPlayerAsset(path: string): Promise<string> {
 
 export interface StandaloneHtmlExportOptions extends StandaloneMediaDeps {
   strings: StandalonePlayerStrings;
+  /**
+   * Embed narration audio (stored and legacy URL narration) and video clips
+   * so the file plays like the classroom. Without it the file stays small:
+   * speech plays on the reading timer with captions and videos show their
+   * poster frame. Defaults to false.
+   */
+  includeNarration?: boolean;
   lang: string;
   /**
    * Address of the online classroom (see {@link classroomUrlFor}). PBL scenes
@@ -203,15 +343,42 @@ export interface StandaloneHtmlExportOptions extends StandaloneMediaDeps {
   documentDeps?: DocumentMigrationDeps;
   /** Loads a precompiled player asset by its public path. */
   fetchAsset?: (path: string) => Promise<string>;
+  /** Size ceiling of the file; defaults to {@link STANDALONE_HTML_MAX_BYTES}. */
+  maxBytes?: number;
 }
 
 export interface StandaloneHtmlExport {
-  html: string;
+  /** The document, assembled from parts (no single giant string). */
+  blob: Blob;
   fileName: string;
   inlineFailures: InlineReport['failed'];
   /** Media references that could not be embedded and were dropped. */
   unresolvedMedia: string[];
+  /** Narration referenced by the classroom whose bytes resolved nowhere. */
+  missingAudioCount: number;
+  /** Size of the file in bytes. */
+  byteSize: number;
 }
+
+/**
+ * Size the single file will have, estimated before any media is encoded:
+ * base64 grows the media by 4/3; the manifest (with the images already
+ * inlined) counts as its escaped UTF-8 bytes, plus the player assets' typical
+ * size. The assembled file is checked again, exactly, before it is returned.
+ */
+export function estimateStandaloneHtmlBytes(
+  manifest: ClassroomManifest,
+  payloads: readonly { blob: Blob }[],
+): number {
+  const media = payloads.reduce((sum, payload) => sum + Math.ceil(payload.blob.size / 3) * 4, 0);
+  // The manifest as the document will carry it: escaped for its script
+  // element and encoded as UTF-8.
+  const manifestBytes = new Blob([serializeJsonForHtmlScript(manifest)]).size;
+  return media + manifestBytes + PLAYER_ASSETS_ESTIMATE_BYTES;
+}
+
+/** Rough size of the inlined player script and styles. */
+const PLAYER_ASSETS_ESTIMATE_BYTES = 1024 * 1024;
 
 export async function buildStandaloneHtmlExport(
   stage: Stage,
@@ -219,14 +386,36 @@ export async function buildStandaloneHtmlExport(
   options: StandaloneHtmlExportOptions,
 ): Promise<StandaloneHtmlExport> {
   const fetchAsset = options.fetchAsset ?? fetchPlayerAsset;
-  // No narration or video bytes in this format yet: skip collecting them
+  const includeNarration = options.includeNarration === true;
+  // Without narration, skip collecting audio and video bytes altogether
   // (posters captured for generated videos are still collected).
+  // Slide audio elements are never played offline, so their bytes are not
+  // collected (or counted as missing) either; without narration, interactive
+  // pages do not fetch their clips.
   const snapshot = await buildClassroomExportSnapshot(stage, scenes, options.documentDeps, {
-    audio: false,
-    videoBytes: false,
+    audio: includeNarration,
+    videoBytes: includeNarration,
+    audioElements: false,
+    interactiveMedia: includeNarration,
   });
-  const media = await resolveStandaloneMedia(snapshot, options);
-  const { manifest, unresolved } = prepareStandaloneManifest(snapshot.manifest, media);
+  const media = await resolveStandaloneMedia(snapshot, options, {
+    playbackMedia: includeNarration,
+  });
+  const { manifest, unresolved, playbackMedia } = prepareStandaloneManifest(
+    snapshot.manifest,
+    media,
+  );
+  const payloads = collectStandalonePlaybackPayloads(snapshot, playbackMedia, media);
+  const estimatedBytes = estimateStandaloneHtmlBytes(manifest, payloads);
+  const maxBytes = options.maxBytes ?? STANDALONE_HTML_MAX_BYTES;
+  if (estimatedBytes > maxBytes) {
+    throw new StandaloneHtmlTooLargeError(estimatedBytes);
+  }
+  // One clip at a time, so only one clip's base64 is being produced at once.
+  const embeddedMedia: StandaloneEmbeddedMedia[] = [];
+  for (const { key, mimeType, blob } of payloads) {
+    embeddedMedia.push({ key, mimeType, base64: await blobToBase64Parts(blob) });
+  }
 
   const [playerScript, playerStyle, mathFonts, chartsScript] = await Promise.all([
     fetchAsset(STANDALONE_PLAYER_ASSETS.script),
@@ -239,20 +428,29 @@ export async function buildStandaloneHtmlExport(
     strings: options.strings,
     ...(options.classroomUrl ? { classroomUrl: options.classroomUrl } : {}),
   };
-  const html = assembleStandaloneHtml({
-    manifest,
-    config,
-    playerScript,
-    playerStyle,
-    extraStyles: mathFonts ? [mathFonts] : [],
-    extraScripts: chartsScript ? [chartsScript] : [],
-    lang: options.lang,
-  });
+  const blob = new Blob(
+    assembleStandaloneHtmlParts({
+      manifest,
+      config,
+      playerScript,
+      playerStyle,
+      extraStyles: mathFonts ? [mathFonts] : [],
+      extraScripts: chartsScript ? [chartsScript] : [],
+      embeddedMedia,
+      lang: options.lang,
+    }),
+    { type: 'text/html;charset=utf-8' },
+  );
+
+  // The estimate is a guard, not a measurement: the ceiling holds exactly.
+  if (blob.size > maxBytes) throw new StandaloneHtmlTooLargeError(blob.size);
 
   return {
-    html,
+    blob,
     fileName: `${classroomExportBaseName(snapshot.stageName)}${STANDALONE_HTML_EXTENSION}`,
     inlineFailures: snapshot.inlineFailures,
     unresolvedMedia: unresolved,
+    missingAudioCount: snapshot.missingAudioCount,
+    byteSize: blob.size,
   };
 }

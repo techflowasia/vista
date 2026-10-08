@@ -8,7 +8,10 @@ import type { ClassroomManifest } from '../classroom-zip-types';
 import {
   STANDALONE_CONFIG_ELEMENT_ID,
   STANDALONE_MANIFEST_ELEMENT_ID,
+  STANDALONE_MEDIA_BLOCK_ID_PREFIX,
+  STANDALONE_MEDIA_TABLE_ELEMENT_ID,
   STANDALONE_ROOT_ELEMENT_ID,
+  type StandaloneMediaTable,
   type StandalonePlayerConfig,
 } from './contract';
 
@@ -99,18 +102,65 @@ export interface StandaloneHtmlInput {
   extraStyles?: readonly string[];
   /** Additional scripts run before the player (e.g. the charts runtime). */
   extraScripts?: readonly string[];
+  /**
+   * Playback media embedded as base64 data blocks, keyed as the manifest
+   * names them (speech `audioRef`, video `mediaRef`).
+   */
+  embeddedMedia?: readonly StandaloneEmbeddedMedia[];
   /** BCP 47 language tag of the player UI. */
   lang: string;
 }
 
-/** Assemble the complete standalone document. */
+export interface StandaloneEmbeddedMedia {
+  key: string;
+  mimeType: string;
+  /** The bytes as base64, whole or as pieces that concatenate into it. */
+  base64: string | readonly string[];
+}
+
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/**
+ * The media table and its data blocks. Base64 cannot end a `<script>` element,
+ * but the payload is checked anyway since it is written verbatim.
+ */
+function mediaBlocks(media: readonly StandaloneEmbeddedMedia[]): string[] {
+  if (media.length === 0) return [];
+  const table: StandaloneMediaTable = {};
+  const blocks: string[] = [];
+  media.forEach((entry, index) => {
+    const pieces = typeof entry.base64 === 'string' ? [entry.base64] : entry.base64;
+    if (!pieces.every((piece) => BASE64_PATTERN.test(piece))) {
+      throw new Error(`Standalone HTML: media ${entry.key} is not base64`);
+    }
+    const id = `${STANDALONE_MEDIA_BLOCK_ID_PREFIX}${index + 1}`;
+    table[entry.key] = { mimeType: entry.mimeType, embedded: id };
+    blocks.push(`<script type="application/octet-stream" id="${id}">`, ...pieces, '</script>\n');
+  });
+  return [
+    `<script type="application/json" id="${STANDALONE_MEDIA_TABLE_ELEMENT_ID}">${serializeJsonForHtmlScript(table)}</script>\n`,
+    ...blocks,
+  ];
+}
+
+/** Assemble the complete standalone document as one string (small documents, tests). */
 export function assembleStandaloneHtml(input: StandaloneHtmlInput): string {
+  return assembleStandaloneHtmlParts(input).join('');
+}
+
+/**
+ * Assemble the complete standalone document as pieces to concatenate (e.g.
+ * into a Blob), so embedded media never has to become one giant string:
+ * V8 caps a string at about 2^29 characters.
+ */
+export function assembleStandaloneHtmlParts(input: StandaloneHtmlInput): string[] {
   const title = input.manifest.stage.name || 'Classroom';
   const styles = [input.playerStyle, ...(input.extraStyles ?? [])]
     .map(
       (css, index) => `<style>${assertRawText(css, 'style', `style sheet ${index + 1}`)}</style>`,
     )
     .join('\n');
+  const line = (text: string) => `${text}\n`;
   return [
     '<!doctype html>',
     `<html lang="${escapeHtmlText(input.lang)}">`,
@@ -127,12 +177,17 @@ export function assembleStandaloneHtml(input: StandaloneHtmlInput): string {
     `<div id="${STANDALONE_ROOT_ELEMENT_ID}"></div>`,
     `<script type="application/json" id="${STANDALONE_MANIFEST_ELEMENT_ID}">${serializeJsonForHtmlScript(input.manifest)}</script>`,
     `<script type="application/json" id="${STANDALONE_CONFIG_ELEMENT_ID}">${serializeJsonForHtmlScript(input.config)}</script>`,
-    ...(input.extraScripts ?? []).map(
-      (js, index) => `<script>${assertRawText(js, 'script', `script ${index + 1}`)}</script>`,
-    ),
-    `<script>${assertRawText(input.playerScript, 'script', 'player script')}</script>`,
-    '</body>',
-    '</html>',
-    '',
-  ].join('\n');
+  ]
+    .map(line)
+    .concat(
+      mediaBlocks(input.embeddedMedia ?? []),
+      [
+        ...(input.extraScripts ?? []).map(
+          (js, index) => `<script>${assertRawText(js, 'script', `script ${index + 1}`)}</script>`,
+        ),
+        `<script>${assertRawText(input.playerScript, 'script', 'player script')}</script>`,
+        '</body>',
+        '</html>',
+      ].map(line),
+    );
 }
