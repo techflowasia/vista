@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "vista:db:up": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml up -d --wait postgres",
+    "vista:db:down": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml stop postgres",
+    "vista:up": "node runtime-build.mjs",
+    "vista:down": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml down"
+  }
+}

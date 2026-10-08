@@ -52,6 +52,9 @@ const nextConfig: NextConfig = {
   ],
   experimental: {
     proxyClientMaxBodySize: '200mb',
+    ...(process.env.VISTA_BUILD_LOW_MEMORY === '1'
+      ? { cpus: 1, staticGenerationMaxConcurrency: 1 }
+      : {}),
   },
   async headers() {
     const extraAncestors = process.env.ALLOWED_FRAME_ANCESTORS?.trim();
