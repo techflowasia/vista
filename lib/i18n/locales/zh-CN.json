@@ -10,7 +10,7 @@
     "close": "关闭"
   },
   "home": {
-    "slogan": "Generative Learning in Multi-Agent Interactive Classroom",
+    "slogan": "Visual Intelligence & Study Teaching Agent",
     "greetingWithName": "嗨，{{name}}"
   },
   "toolbar": {

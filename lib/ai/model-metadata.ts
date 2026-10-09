@@ -454,6 +454,37 @@ const THINKING_CAPABILITIES: Record<string, ThinkingCapability> = {
   [getModelMetadataKey('doubao', 'minimax-m2.7')]: doubaoSeed20Effort,
   [getModelMetadataKey('doubao', 'ark-code-latest')]: doubaoSeed20Effort,
 
+  [getModelMetadataKey('openrouter', 'anthropic/claude-sonnet-4-20250514')]: effortCapability(
+    'openrouter',
+    ['low', 'medium', 'high'],
+    'medium',
+  ),
+  [getModelMetadataKey('openrouter', 'anthropic/claude-opus-4')]: effortCapability(
+    'openrouter',
+    ['low', 'medium', 'high'],
+    'high',
+  ),
+  [getModelMetadataKey('openrouter', 'google/gemini-2.5-pro-05-06')]: effortCapability(
+    'openrouter',
+    ['low', 'medium', 'high'],
+    'medium',
+  ),
+  [getModelMetadataKey('openrouter', 'google/gemini-2.5-flash-preview-05-06')]: fixedThinkingCapability,
+  [getModelMetadataKey('openrouter', 'openai/gpt-5')]: effortCapability(
+    'openrouter',
+    ['low', 'medium', 'high'],
+    'medium',
+  ),
+  [getModelMetadataKey('openrouter', 'openai/gpt-5-mini')]: fixedThinkingCapability,
+  [getModelMetadataKey('openrouter', 'openai/gpt-5-nano')]: fixedThinkingCapability,
+  [getModelMetadataKey('openrouter', 'meta-llama/llama-4-scout')]: fixedThinkingCapability,
+  [getModelMetadataKey('openrouter', 'meta-llama/llama-4-maverick')]: fixedThinkingCapability,
+  [getModelMetadataKey('openrouter', 'qwen/qwq-32b')]: fixedThinkingCapability,
+  [getModelMetadataKey('openrouter', 'deepseek/deepseek-r1')]: effortCapability(
+    'openrouter',
+    ['low', 'medium', 'high'],
+    'high',
+  ),
   [getModelMetadataKey('openrouter', 'deepseek/deepseek-v4-pro')]: effortCapability(
     'openrouter',
     ['low', 'medium', 'high'],
