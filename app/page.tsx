@@ -769,7 +769,7 @@ function HomePage() {
             src="/logo-horizontal.png"
             alt="Vista"
             className={cn(
-              'h-[3.9rem] md:h-[5.2rem] mb-2 -ml-2 md:-ml-3',
+              'h-[5.1rem] md:h-[6.8rem] mb-2 -ml-2 md:-ml-3',
               heroEnter('fade-in zoom-in-90 duration-500 delay-100'),
             )}
           />
