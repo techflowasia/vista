@@ -33,6 +33,9 @@ assets
 coverage
 logs
 data
+.runtime
+vista-data
+vista-postgres
 docs
 .claude
 
