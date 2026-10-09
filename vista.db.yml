@@ -23,7 +23,7 @@ services:
       file: vista.yml
       service: postgres
     ports:
-      - '127.0.0.1:${VISTA_DB_PORT:-5432}:5432'
+      - '0.0.0.0:${VISTA_DB_PORT:-5432}:5432'
 
 volumes:
   vista-postgres:
