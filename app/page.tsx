@@ -767,9 +767,9 @@ function HomePage() {
         <div className="relative" data-pro-morph="lockup">
           <img
             src="/logo-horizontal.png"
-            alt="OpenMAIC"
+            alt="Vista"
             className={cn(
-              'h-12 md:h-16 mb-2 -ml-2 md:-ml-3',
+              'h-[3.9rem] md:h-[5.2rem] mb-2 -ml-2 md:-ml-3',
               heroEnter('fade-in zoom-in-90 duration-500 delay-100'),
             )}
           />
@@ -1313,7 +1313,7 @@ function HomePage() {
 
       {/* Footer — flows with content, at the very end */}
       <div className="mt-auto pt-12 pb-4 text-center text-xs text-muted-foreground/40">
-        OpenMAIC Open Source Project
+        Vista
       </div>
     </div>
   );
