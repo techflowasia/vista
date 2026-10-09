@@ -18,7 +18,7 @@ name: vista-dev-db
 
 services:
   postgres:
-    container_name: vista-dev-postgres
+    container_name: vista-db-dev
     extends:
       file: vista.yml
       service: postgres
