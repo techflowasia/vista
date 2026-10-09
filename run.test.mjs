@@ -221,8 +221,7 @@ test('vista scripts generate isolated runtime configuration on every launch', as
   success(f.launch(['vista:down']));
   assert.equal(await f.read('.runtime/vista.runtime.yml'), override);
   assert.equal(local.scripts['vista:up'], 'node runtime-build.mjs');
-  assert.match(override, /VISTA_BUILD_LOW_MEMORY: '1'/);
-  assert.match(override, /VISTA_BUILD_HEAP_MB: '2048'/);
+  assert.doesNotMatch(override, /VISTA_BUILD_|mem_limit/);
   for (const command of Object.values(local.scripts).filter((value) =>
     value.startsWith('docker'),
   )) {
