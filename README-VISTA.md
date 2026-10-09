@@ -39,3 +39,9 @@ pnpm run vista:push
 ```
 
 Image จะถูก push เป็น `ghcr.io/techflowasia/vista-app:<version>` โดย `<version>` มาจาก `vista.package.json` เช่น `1.0.1`
+
+
+## AWS
+```bash
+docker compose --env-file .env.local -f vista.db.yml up -d
+```
