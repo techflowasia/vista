@@ -1,9 +1,10 @@
 {
+  "version": "1.0.0",
   "scripts": {
     "vista:db:up": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml up -d --wait postgres",
     "vista:db:down": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml stop postgres",
-    "vista:build": "docker compose -p vista-runtime -f vista.yml build vista",
-    "vista:push": "docker buildx bake -f vista.yml --set vista.platform=linux/amd64,linux/arm64 --set vista.tags=ghcr.io/${GHCR_OWNER:?Set GHCR_OWNER}/vista-app:latest --push vista",
+    "vista:build": "docker buildx bake -f vista.yml --set vista.tags=ghcr.io/techflowasia/vista-app:${npm_package_version} --load vista",
+    "vista:push": "docker buildx bake -f vista.yml --set vista.platform=linux/amd64,linux/arm64 --set vista.tags=ghcr.io/techflowasia/vista-app:${npm_package_version} --push vista",
     "vista:up": "node runtime-build.mjs",
     "vista:down": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml down"
   }
