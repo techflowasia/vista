@@ -1,10 +1,11 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import '@openmaic/renderer/fonts.css';
 import 'animate.css';
 import 'katex/dist/katex.min.css';
+import { DEFAULT_BRAND } from '@/lib/brand/brand-config';
 import { ThemeProvider } from '@/lib/hooks/use-theme';
 import { I18nProvider } from '@/lib/hooks/use-i18n';
 import { Toaster } from '@/components/ui/sonner';
@@ -39,9 +40,13 @@ import '@fontsource-variable/inter';
 const THEME_INIT_SCRIPT = `try{var t=localStorage.getItem('theme');if(t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}`;
 
 export const metadata: Metadata = {
-  title: 'Vista',
-  description:
-    'The open-source AI interactive classroom. Upload a PDF to instantly generate an immersive, multi-agent learning experience.',
+  title: DEFAULT_BRAND.productName,
+  description: DEFAULT_BRAND.description,
+  icons: { icon: DEFAULT_BRAND.markSrc },
+};
+
+export const viewport: Viewport = {
+  themeColor: DEFAULT_BRAND.themeColor,
 };
 
 export default function RootLayout({

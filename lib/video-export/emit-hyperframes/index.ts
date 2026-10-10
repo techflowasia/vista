@@ -21,6 +21,7 @@
  *
  * Pure: depends only on the IR, the subtitle serializer, and the effect emitter.
  */
+import { DEFAULT_BRAND } from '@/lib/brand/brand-config';
 import type {
   PblCoverVisual,
   QuizCoverVisual,
@@ -1160,7 +1161,7 @@ function renderReadme(project: {
   const scriptFontSummary = project.quizScriptFonts.length
     ? `, ${project.quizScriptFonts.join(' and ')}`
     : '';
-  return `# ${project.stageName} — OpenMAIC video export
+  return `# ${project.stageName} — ${DEFAULT_BRAND.exportName} video export
 
 Self-contained [Hyperframes](https://github.com/heygen-com/hyperframes) composition
 for the classroom **${project.stageName}**. Everything needed to render is in this
@@ -1309,7 +1310,7 @@ export function emitHyperframes(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(ir.stage.name)} — OpenMAIC video</title>
+<title>${escapeHtml(ir.stage.name)} — ${DEFAULT_BRAND.exportName} video</title>
 <style>
   ${INTER_FONT_FACE_CSS}${
     hasQuizQuestionList

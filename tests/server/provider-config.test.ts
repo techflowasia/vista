@@ -29,6 +29,7 @@ const ENV_PREFIXES_TO_CLEAR = [
   'OLLAMA',
   'BEDROCK',
   'TTS_OPENAI',
+  'TTS_OPENROUTER',
   'TTS_AZURE',
   'TTS_GLM',
   'TTS_QWEN',
@@ -289,6 +290,20 @@ providers:
 
       expect(Object.keys(providers)).toContain('openai');
       expect(Object.keys(providers)).toContain('anthropic');
+    });
+
+    it('configures OpenRouter TTS from shared OpenRouter settings when enabled', async () => {
+      vi.stubEnv('OPENROUTER_API_KEY', 'sk-openrouter');
+      vi.stubEnv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1');
+      vi.stubEnv('OPENROUTER_MODELS', 'openai/gpt-audio-mini,openai/gpt-audio');
+      vi.stubEnv('TTS_OPENROUTER_API_KEY', 'sk-openrouter');
+      vi.stubEnv('TTS_OPENROUTER_ENABLED', 'true');
+      const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+      expect(getServerProviderConfig().tts['openrouter-tts']).toMatchObject({
+        apiKey: 'sk-openrouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        models: ['openai/gpt-audio-mini', 'openai/gpt-audio'],
+      });
     });
 
     it('maps OpenRouter env prefix to provider ID', async () => {

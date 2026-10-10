@@ -192,6 +192,8 @@ describe('standalone HTML export', () => {
       'Which are inputs of photosynthesis? </script><!-- not markup -->',
     );
     expect(html).toContain('<title>Photosynthesis: &lt;Light&gt; &amp; &quot;Life&quot;</title>');
+    expect(html).toContain('<meta name="generator" content="Vista">');
+    expect(html).not.toContain('<meta name="generator" content="OpenMAIC">');
   });
 
   it('sets a restrictive CSP before any script or style', async () => {

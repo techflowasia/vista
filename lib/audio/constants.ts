@@ -244,6 +244,28 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     speedRange: { min: 0.25, max: 4.0, default: 1.0 },
   },
 
+  'openrouter-tts': {
+    id: 'openrouter-tts',
+    name: 'OpenRouter Audio',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    icon: '/logos/openrouter.svg',
+    models: [
+      { id: 'openai/gpt-audio-mini', name: 'GPT Audio Mini' },
+      { id: 'openai/gpt-audio', name: 'GPT Audio' },
+    ],
+    defaultModelId: 'openai/gpt-audio-mini',
+    voices: [
+      { id: 'alloy', name: 'Alloy', language: 'en', gender: 'neutral' },
+      { id: 'echo', name: 'Echo', language: 'en', gender: 'male' },
+      { id: 'fable', name: 'Fable', language: 'en', gender: 'neutral' },
+      { id: 'onyx', name: 'Onyx', language: 'en', gender: 'male' },
+      { id: 'nova', name: 'Nova', language: 'en', gender: 'female' },
+      { id: 'shimmer', name: 'Shimmer', language: 'en', gender: 'female' },
+    ],
+    supportedFormats: ['wav'],
+  },
+
   'azure-tts': {
     id: 'azure-tts',
     name: 'Azure TTS',
@@ -1542,6 +1564,7 @@ export const ASR_PROVIDERS: Record<BuiltInASRProviderId, ASRProviderConfig> = {
  */
 export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
   'openai-tts': 'alloy',
+  'openrouter-tts': 'alloy',
   'azure-tts': 'zh-CN-XiaoxiaoNeural',
   'glm-tts': 'tongtong',
   'qwen-tts': 'Cherry',
@@ -1556,6 +1579,7 @@ export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
 
 export const DEFAULT_TTS_MODELS: Record<BuiltInTTSProviderId, string> = {
   'openai-tts': 'gpt-4o-mini-tts',
+  'openrouter-tts': 'openai/gpt-audio-mini',
   'azure-tts': '',
   'glm-tts': 'glm-tts',
   'qwen-tts': 'qwen3-tts-flash',

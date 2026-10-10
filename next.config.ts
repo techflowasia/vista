@@ -1,10 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  allowedOrigins: [
-    'https://vista-dev.techflow.asia',
-    'http://46.137.209.23'
-  ],
+  allowedDevOrigins: ['localhost', '127.0.0.1', 'vista-dev.techflow.asia', '46.137.209.23'],
   env: {
     // Pin even the unset/default value in both client and server bundles.
     // A runtime-only override must not disable the route the built client uses.

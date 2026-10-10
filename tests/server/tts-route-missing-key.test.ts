@@ -34,6 +34,7 @@ vi.mock('@/lib/audio/tts-providers', async (importOriginal) => {
 
 const TTS_ENV_PREFIXES = [
   'TTS_OPENAI',
+  'TTS_OPENROUTER',
   'TTS_AZURE',
   'TTS_GLM',
   'TTS_QWEN',
