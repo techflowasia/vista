@@ -3,6 +3,7 @@
  * precompiled player (script + style), the classroom manifest and the player
  * config. No IO, no DOM; the impure collection lives in `build-standalone-html.ts`.
  */
+import { DEFAULT_BRAND } from '@/lib/brand/brand-config';
 import type { ClassroomManifest } from '../classroom-zip-types';
 import {
   STANDALONE_CONFIG_ELEMENT_ID,
@@ -118,7 +119,7 @@ export function assembleStandaloneHtml(input: StandaloneHtmlInput): string {
     `<meta http-equiv="Content-Security-Policy" content="${STANDALONE_HTML_CSP}">`,
     '<meta name="referrer" content="no-referrer">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<meta name="generator" content="OpenMAIC">',
+    `<meta name="generator" content="${escapeHtmlText(DEFAULT_BRAND.exportName)}">`,
     `<title>${escapeHtmlText(title)}</title>`,
     styles,
     '</head>',

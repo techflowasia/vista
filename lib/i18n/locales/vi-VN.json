@@ -1818,7 +1818,7 @@
       "download": "Tải xuống",
       "detailFailed": "Không thể tải chi tiết skill",
       "contentLabel": "Nội dung",
-      "builtinDetailNote": "Skill này đi kèm với OpenMAIC. Tải xuống để nhập vào không gian làm việc của agent khác.",
+      "builtinDetailNote": "Skill này đi kèm với Vista. Tải xuống để nhập vào không gian làm việc của agent khác.",
       "upload": "Tải lên",
       "uploading": "Đang tải lên…",
       "uploadFailed": "Không thể tải skill lên. Hãy kiểm tra tệp và thử lại.",
