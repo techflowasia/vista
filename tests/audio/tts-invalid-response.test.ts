@@ -38,6 +38,74 @@ describe('TTS Provider Response Validation (#1395)', () => {
     mockRecordGenerationUsage.mockClear();
   });
 
+  it('calls OpenRouter Chat Completions with streaming PCM and wraps the audio in WAV', async () => {
+    const pcm = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
+    const chunk = (data: string) =>
+      `data: ${JSON.stringify({ choices: [{ delta: { audio: { data, transcript: 'Hello' } } }] })}\n\n`;
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(chunk(Buffer.from(pcm).toString('base64'))));
+        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body: stream,
+    });
+
+    const result = await generateTTS(
+      {
+        providerId: 'openrouter-tts',
+        modelId: 'openai/gpt-audio-mini',
+        apiKey: 'sk-test',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        voice: 'alloy',
+      },
+      'Hello',
+    );
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: 'openai/gpt-audio-mini',
+      modalities: ['text', 'audio'],
+      audio: { voice: 'alloy', format: 'pcm16' },
+      stream: true,
+    });
+    expect(result.format).toBe('wav');
+    expect(Buffer.from(result.audio).subarray(0, 4).toString()).toBe('RIFF');
+    expect(Buffer.from(result.audio).subarray(44)).toEqual(Buffer.from(pcm));
+  });
+
+  it('rejects OpenRouter streams with no audio chunks', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body: stream,
+    });
+
+    await expect(
+      generateTTS(
+        {
+          providerId: 'openrouter-tts',
+          apiKey: 'sk-test',
+          voice: 'alloy',
+        },
+        'Hello',
+      ),
+    ).rejects.toMatchObject({ code: 'TTS_INVALID_RESPONSE', provider: 'OpenRouter' });
+  });
+
   it('rejects 200 responses with text/html body as non-audio', async () => {
     const html = '<!DOCTYPE html><html><body><h1>Welcome to My Website</h1></body></html>';
     mockFetch.mockResolvedValueOnce({

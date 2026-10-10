@@ -1361,6 +1361,7 @@
     "asrLanguage": "辨識語言",
     "browserNativeNote": "瀏覽器原生 ASR 無須設定，完全免費",
     "providerOpenAITTS": "OpenAI TTS (gpt-4o-mini-tts)",
+    "providerOpenRouterTTS": "OpenRouter 音訊（串流）",
     "providerAzureTTS": "Azure TTS",
     "providerGLMTTS": "GLM TTS",
     "providerQwenTTS": "Qwen TTS（阿里雲百煉）",

@@ -24,6 +24,7 @@ const ASR_PROVIDER_NAME_KEYS: Record<string, string> = {
 
 const TTS_PROVIDER_NAME_KEYS: Record<string, string> = {
   'openai-tts': 'settings.providerOpenAITTS',
+  'openrouter-tts': 'settings.providerOpenRouterTTS',
   'azure-tts': 'settings.providerAzureTTS',
   'glm-tts': 'settings.providerGLMTTS',
   'qwen-tts': 'settings.providerQwenTTS',

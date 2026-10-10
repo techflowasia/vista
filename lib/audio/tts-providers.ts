@@ -304,6 +304,9 @@ export async function generateTTS(
       case 'openai-tts':
         return await generateOpenAITTS(config, text, signal);
 
+      case 'openrouter-tts':
+        return await generateOpenRouterTTS(config, text, signal);
+
       case 'azure-tts':
         return await generateAzureTTS(config, text, signal);
 
@@ -394,6 +397,96 @@ async function generateOpenAITTS(
   }
 
   return await validateTTSAudioResponse(response, 'OpenAI');
+}
+
+async function generateOpenRouterTTS(
+  config: TTSModelConfig,
+  text: string,
+  signal: AbortSignal,
+): Promise<TTSGenerationResult> {
+  const baseUrl = (config.baseUrl || TTS_PROVIDERS['openrouter-tts'].defaultBaseUrl || '').replace(
+    /\/$/,
+    '',
+  );
+  const response = await ttsFetch(config, `${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json; charset=utf-8',
+      ...appAttributionHeaders(baseUrl),
+    },
+    body: JSON.stringify({
+      model: config.modelId || TTS_PROVIDERS['openrouter-tts'].defaultModelId,
+      messages: [{ role: 'user', content: text }],
+      modalities: ['text', 'audio'],
+      audio: { voice: config.voice, format: 'pcm16' },
+      stream: true,
+      ...(config.speed && config.speed !== 1 ? { speed: config.speed } : {}),
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throwIfTtsRateLimited('OpenRouter', response.status, response.headers?.get('retry-after'));
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(`OpenRouter TTS API error: ${error.error?.message || response.statusText}`);
+  }
+
+  if (!response.body) throw new TTSInvalidResponseError('OpenRouter', 'Missing audio stream');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let audioData = '';
+  let transcript = '';
+  let streamFinished = false;
+  try {
+    while (!streamFinished) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') {
+          streamFinished = true;
+          break;
+        }
+        try {
+          const event = JSON.parse(data) as {
+            choices?: Array<{
+              delta?: { audio?: { data?: unknown; transcript?: unknown }; content?: unknown };
+            }>;
+          };
+          const delta = event.choices?.[0]?.delta;
+          const audio = delta?.audio;
+          if (typeof audio?.data === 'string') audioData += audio.data;
+          if (typeof audio?.transcript === 'string') transcript += audio.transcript;
+          if (typeof delta?.content === 'string') transcript += delta.content;
+        } catch {
+          throw new TTSInvalidResponseError('OpenRouter', 'Invalid audio stream event');
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!audioData) {
+    throw new TTSInvalidResponseError(
+      'OpenRouter',
+      transcript
+        ? 'OpenRouter TTS returned text without audio'
+        : 'OpenRouter TTS returned no audio data',
+    );
+  }
+  const pcm = new Uint8Array(Buffer.from(audioData, 'base64'));
+  if (pcm.byteLength === 0) {
+    throw new TTSInvalidResponseError('OpenRouter', 'OpenRouter TTS returned empty PCM audio');
+  }
+  return { audio: pcmS16leMonoToWav(pcm), format: 'wav' };
 }
 
 /**

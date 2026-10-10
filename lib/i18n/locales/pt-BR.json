@@ -1376,6 +1376,7 @@
     "asrLanguage": "Idioma de Reconhecimento",
     "browserNativeNote": "O ASR nativo do navegador não exige configuração e é totalmente gratuito",
     "providerOpenAITTS": "OpenAI TTS (gpt-4o-mini-tts)",
+    "providerOpenRouterTTS": "Áudio OpenRouter (streaming)",
     "providerAzureTTS": "Azure TTS",
     "providerGLMTTS": "GLM TTS",
     "providerQwenTTS": "Qwen TTS (Alibaba Cloud Bailian)",

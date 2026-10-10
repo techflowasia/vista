@@ -1376,6 +1376,7 @@
     "asrLanguage": "Ngôn ngữ nhận dạng",
     "browserNativeNote": "Nhận dạng giọng nói của trình duyệt không cần cấu hình gì và hoàn toàn miễn phí",
     "providerOpenAITTS": "OpenAI TTS (gpt-4o-mini-tts)",
+    "providerOpenRouterTTS": "OpenRouter Audio (phát trực tuyến)",
     "providerAzureTTS": "Azure TTS",
     "providerGLMTTS": "GLM TTS",
     "providerQwenTTS": "Qwen TTS (Alibaba Cloud Bailian)",

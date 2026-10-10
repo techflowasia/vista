@@ -1376,6 +1376,7 @@
     "asrLanguage": "認識言語",
     "browserNativeNote": "ブラウザネイティブASRは設定不要で完全無料です",
     "providerOpenAITTS": "OpenAI TTS (gpt-4o-mini-tts)",
+    "providerOpenRouterTTS": "OpenRouter Audio（ストリーミング）",
     "providerAzureTTS": "Azure TTS",
     "providerGLMTTS": "GLM TTS",
     "providerQwenTTS": "Qwen TTS（Alibaba Cloud百錬）",
