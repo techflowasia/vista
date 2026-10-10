@@ -82,6 +82,7 @@
  */
 export type BuiltInTTSProviderId =
   | 'openai-tts'
+  | 'openrouter-tts'
   | 'azure-tts'
   | 'glm-tts'
   | 'qwen-tts'

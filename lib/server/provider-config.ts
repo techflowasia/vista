@@ -98,6 +98,7 @@ export const LLM_ENV_MAP: Record<string, string> = {
 
 const TTS_ENV_MAP: Record<string, string> = {
   TTS_OPENAI: 'openai-tts',
+  TTS_OPENROUTER: 'openrouter-tts',
   TTS_AZURE: 'azure-tts',
   TTS_GLM: 'glm-tts',
   TTS_QWEN: 'qwen-tts',
@@ -533,6 +534,15 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     }),
     yamlData.providers,
   );
+  const tts = loadEnvSection(TTS_ENV_MAP, yamlData.tts, {
+    keylessProviders: new Set(['voxcpm-tts', 'lemonade-tts', 'openrouter-tts']),
+  });
+  const openRouterTTS = tts['openrouter-tts'];
+  if (openRouterTTS && process.env.TTS_OPENROUTER_ENABLED?.toLowerCase() === 'true') {
+    openRouterTTS.apiKey ||= process.env.OPENROUTER_API_KEY || '';
+    openRouterTTS.baseUrl ||= process.env.OPENROUTER_BASE_URL;
+    openRouterTTS.models ||= splitModels(process.env.OPENROUTER_MODELS);
+  }
 
   const webSearch = loadEnvSection(WEB_SEARCH_ENV_MAP, yamlData['web-search'], {
     keylessProviders: new Set(['brave', 'searxng']),
@@ -560,9 +570,7 @@ function buildConfig(yamlData: YamlData): ServerConfig {
 
   return {
     providers,
-    tts: loadEnvSection(TTS_ENV_MAP, yamlData.tts, {
-      keylessProviders: new Set(['voxcpm-tts', 'lemonade-tts']),
-    }),
+    tts,
     asr: loadEnvSection(ASR_ENV_MAP, yamlData.asr, {
       keylessProviders: new Set(['funasr-asr', 'lemonade-asr']),
     }),
