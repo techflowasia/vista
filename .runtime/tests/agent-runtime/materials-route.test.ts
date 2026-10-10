@@ -1,0 +1,582 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+
+import type { AgentSessionMaterial } from '@openmaic/storage';
+import type { OwnerMaterialRecord } from '@/lib/persistence/owner-materials';
+
+const mocks = vi.hoisted(() => ({
+  runtimeConfigured: true,
+  persistenceConfigured: true,
+  resolveRequestOwnerId: vi.fn(),
+  resolveOwnedSession: vi.fn(),
+  listSessionMaterials: vi.fn(),
+  createSourceMaterial: vi.fn(),
+  registerOwnerMaterial: vi.fn(),
+  reclaimStaleOwnerMaterialUploads: vi.fn(),
+  finalizeOwnerMaterial: vi.fn(),
+  abandonOwnerMaterial: vi.fn(),
+  deleteOwnerMaterial: vi.fn(),
+  byteStore: {
+    put: vi.fn(),
+    get: vi.fn(),
+    delete: vi.fn(),
+    deletePrefix: vi.fn(),
+  },
+  queryPool: {
+    query: vi.fn(),
+    connect: vi.fn(),
+  },
+}));
+
+vi.mock('@/lib/config/feature-flags', () => ({
+  isAgentRuntimeConfigured: () => mocks.runtimeConfigured,
+  isServerPersistenceConfigured: () => mocks.persistenceConfigured,
+}));
+vi.mock('@/lib/server/identity/resolve', async () =>
+  (await import('../helpers/owner-resolution-mock')).ownerResolveModule(
+    mocks.resolveRequestOwnerId,
+  ),
+);
+vi.mock('@/lib/server/agent-runtime/session-materials', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/lib/server/agent-runtime/session-materials')>();
+  return {
+    ...actual,
+    resolveOwnedSession: mocks.resolveOwnedSession,
+    listSessionMaterials: mocks.listSessionMaterials,
+    createSourceMaterial: mocks.createSourceMaterial,
+  };
+});
+vi.mock('@/lib/persistence/server-provider', () => ({
+  getServerPersistenceProvider: async () => ({
+    pool: mocks.queryPool,
+  }),
+}));
+vi.mock('@/lib/server/materials/bytes', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/server/materials/bytes')>()),
+  getMaterialByteStore: () => mocks.byteStore,
+}));
+vi.mock('@/lib/persistence/owner-materials', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/persistence/owner-materials')>();
+  return {
+    ...actual,
+    registerOwnerMaterial: mocks.registerOwnerMaterial,
+    reclaimStaleOwnerMaterialUploads: mocks.reclaimStaleOwnerMaterialUploads,
+    finalizeOwnerMaterial: mocks.finalizeOwnerMaterial,
+    abandonOwnerMaterial: mocks.abandonOwnerMaterial,
+    deleteOwnerMaterial: mocks.deleteOwnerMaterial,
+  };
+});
+
+import { GET, POST } from '@/app/api/materials/route';
+import { DELETE } from '@/app/api/materials/[id]/route';
+import { OwnerRetiredError } from '@/lib/persistence/owner-merges';
+import { agentRuntimeConfig } from '@/lib/server/agent-runtime/config';
+
+const SESSION_ID = 'session-1';
+
+function material(overrides: Partial<AgentSessionMaterial> = {}): AgentSessionMaterial {
+  return {
+    id: 'mat_00000000000000000000000000',
+    sessionId: SESSION_ID,
+    kind: 'web',
+    title: 'Example',
+    sourceUrl: 'https://example.com/doc',
+    textAssetId: 'asset-1',
+    rawAssetId: null,
+    textChars: 42,
+    derivedFrom: null,
+    extraction: { status: 'done', attempts: 0 },
+    createdAt: '2025-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function ownerMaterial(overrides: Partial<OwnerMaterialRecord> = {}): OwnerMaterialRecord {
+  return {
+    id: 'mat_00000000000000000000000000',
+    ownerId: 'owner-1',
+    kind: 'source',
+    derivedFrom: null,
+    mime: 'application/pdf',
+    bytes: 5,
+    originalName: '讲义.pdf',
+    ossKey: 'materials/owner-1/mat_00000000000000000000000000',
+    sha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
+    status: 'ready',
+    extraction: { status: 'idle' },
+    createdAt: 1_700_000_000_000,
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.runtimeConfigured = true;
+  mocks.persistenceConfigured = true;
+  mocks.resolveRequestOwnerId.mockReturnValue('owner-1');
+  mocks.resolveOwnedSession.mockResolvedValue({ id: SESSION_ID, ownerId: 'owner-1' });
+  mocks.listSessionMaterials.mockResolvedValue([material()]);
+  mocks.registerOwnerMaterial.mockResolvedValue(ownerMaterial());
+  mocks.reclaimStaleOwnerMaterialUploads.mockResolvedValue(undefined);
+  mocks.finalizeOwnerMaterial.mockImplementation(
+    async (
+      _pool: unknown,
+      id: string,
+      _bytes: number,
+      _sha: string,
+      options?: { extract?: boolean },
+    ) => ownerMaterial({ id, extraction: { status: options?.extract ? 'extracting' : 'idle' } }),
+  );
+  mocks.abandonOwnerMaterial.mockResolvedValue(undefined);
+  mocks.byteStore.put.mockResolvedValue(undefined);
+  mocks.byteStore.get.mockResolvedValue(null);
+  mocks.byteStore.delete.mockResolvedValue(undefined);
+  mocks.byteStore.deletePrefix.mockResolvedValue(undefined);
+});
+
+describe('GET /api/materials', () => {
+  it("lists one owned session's materials as public views", async () => {
+    const response = await GET(
+      new NextRequest(`http://localhost/api/materials?sessionId=${SESSION_ID}`),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      materials: [
+        {
+          materialId: 'mat_00000000000000000000000000',
+          kind: 'web',
+          title: 'Example',
+          sourceUrl: 'https://example.com/doc',
+          textChars: 42,
+          extraction: { status: 'done', attempts: 0 },
+          createdAt: '2025-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    expect(mocks.resolveOwnedSession).toHaveBeenCalledWith(SESSION_ID, 'owner-1');
+    expect(mocks.listSessionMaterials).toHaveBeenCalledWith(SESSION_ID, {});
+  });
+
+  it('passes limit and before through as keyset paging', async () => {
+    const response = await GET(
+      new NextRequest(
+        `http://localhost/api/materials?sessionId=${SESSION_ID}&limit=10&before=mat_prev`,
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.listSessionMaterials).toHaveBeenCalledWith(SESSION_ID, {
+      limit: 10,
+      before: 'mat_prev',
+    });
+  });
+
+  it('rejects an empty sessionId instead of listing the library', async () => {
+    const response = await GET(new NextRequest('http://localhost/api/materials?sessionId='));
+    expect(response.status).toBe(400);
+    expect(mocks.resolveOwnedSession).not.toHaveBeenCalled();
+  });
+
+  it("lists the owner's own uploads with their extraction when no session is named", async () => {
+    mocks.runtimeConfigured = false;
+    mocks.queryPool.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'mat_00000000000000000000000000',
+          owner_id: 'owner-1',
+          kind: 'source',
+          derived_from: null,
+          mime: 'video/mp4',
+          bytes: 5,
+          original_name: 'talk.mp4',
+          oss_key: 'materials/owner-1/x',
+          sha256: 'sha',
+          status: 'ready',
+          extraction: {
+            status: 'ready',
+            textChars: 10,
+            truncated: { textChars: 5 },
+            identityKey: '[]',
+            resultKey: 'materials/owner-1/x.extraction/a.json',
+            claimedAt: 1,
+          },
+          created_at: 1_700_000_000_000,
+          deleted_at: null,
+        },
+      ],
+    });
+    const response = await GET(new NextRequest('http://localhost/api/materials'));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { materials: Array<Record<string, unknown>> };
+    expect(body.materials).toEqual([
+      expect.objectContaining({
+        materialId: 'mat_00000000000000000000000000',
+        mediaKind: 'media',
+        // The services key is internal.
+        extraction: { status: 'ready', textChars: 10, truncated: { textChars: 5 } },
+      }),
+    ]);
+    expect(mocks.resolveOwnedSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed or out-of-range limit', async () => {
+    for (const limit of ['abc', '0', '201']) {
+      const response = await GET(
+        new NextRequest(`http://localhost/api/materials?sessionId=${SESSION_ID}&limit=${limit}`),
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it('answers 404 for a foreign or missing session (no existence oracle)', async () => {
+    mocks.resolveOwnedSession.mockResolvedValue(null);
+    const response = await GET(
+      new NextRequest(`http://localhost/api/materials?sessionId=${SESSION_ID}`),
+    );
+    expect(response.status).toBe(404);
+    expect(mocks.listSessionMaterials).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the agent runtime is not configured', async () => {
+    mocks.runtimeConfigured = false;
+    const response = await GET(
+      new NextRequest(`http://localhost/api/materials?sessionId=${SESSION_ID}`),
+    );
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('POST /api/materials', () => {
+  async function post(body: unknown, headers: Record<string, string> = {}) {
+    return POST(
+      new NextRequest('http://localhost/api/materials', {
+        method: 'POST',
+        headers: { 'content-type': 'application/pdf', 'x-material-filename': 'a.pdf', ...headers },
+        body: body as BodyInit,
+      }),
+    );
+  }
+
+  it('defers the extraction for an uploader that asks (the agent workspace)', async () => {
+    const response = await POST(
+      new NextRequest('http://localhost/api/materials?extract=false', {
+        method: 'POST',
+        headers: { 'content-type': 'application/pdf', 'x-material-filename': 'a.pdf' },
+        body: Buffer.from('hello') as BodyInit,
+      }),
+    );
+    expect(response.status).toBe(201);
+    expect((await response.json()).extraction).toEqual({ status: 'idle' });
+    expect(mocks.finalizeOwnerMaterial).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      5,
+      expect.any(String),
+      { extract: false },
+    );
+  });
+
+  it('uploads raw bytes into the owner library and returns the flat 201 view', async () => {
+    const response = await post(Buffer.from('hello'));
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      materialId: string;
+      originalName: string;
+      bytes: number;
+      mime: string;
+      extraction: { status: string };
+    };
+    expect(body.materialId).toMatch(/^mat_/);
+    expect(body).toEqual({
+      materialId: body.materialId,
+      originalName: '讲义.pdf',
+      bytes: 5,
+      mime: 'application/pdf',
+      mediaKind: 'document',
+      // Extraction starts with the upload.
+      extraction: { status: 'extracting' },
+    });
+    // The uploader's error pairing header is echoed.
+    expect(response.headers.get('x-request-id')).toBeTruthy();
+    expect(mocks.registerOwnerMaterial).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ownerId: 'owner-1', kind: 'source', mime: 'application/pdf' }),
+      expect.objectContaining({
+        maxCount: agentRuntimeConfig.maxMaterialsPerOwner,
+        maxTotalBytes: agentRuntimeConfig.maxMaterialBytesPerOwner,
+      }),
+    );
+    expect(mocks.byteStore.put).toHaveBeenCalledWith(
+      `materials/owner-1/${body.materialId}`,
+      expect.any(Buffer),
+      'application/pdf',
+    );
+    expect((mocks.byteStore.put.mock.calls[0]![1] as Buffer).toString()).toBe('hello');
+    expect(mocks.finalizeOwnerMaterial).toHaveBeenCalledWith(
+      expect.anything(),
+      body.materialId,
+      5,
+      '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
+      { extract: true },
+    );
+    // The object key is part of the reservation before its bytes are written,
+    // closing the crash window between the byte write and finalize.
+    expect(mocks.reclaimStaleOwnerMaterialUploads).toHaveBeenCalledWith(
+      expect.anything(),
+      'owner-1',
+      expect.any(Function),
+    );
+    const putCall = mocks.byteStore.put.mock.invocationCallOrder[0]!;
+    const finalizeCall = mocks.finalizeOwnerMaterial.mock.invocationCallOrder[0]!;
+    expect(putCall).toBeLessThan(finalizeCall);
+  });
+
+  it('rejects an unsupported mime type with 415', async () => {
+    const response = await post(Buffer.from('x'), { 'content-type': 'application/x-unknown' });
+    expect(response.status).toBe(415);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: 'INVALID_REQUEST',
+      error: expect.stringContaining('unsupported material mime type'),
+    });
+    expect(mocks.registerOwnerMaterial).not.toHaveBeenCalled();
+  });
+
+  it('derives the concrete mime from the filename when the client sends a generic Office MIME', async () => {
+    // Older Linux XDG mime databases report OOXML uploads as the generic
+    // `application/vnd.ms-office` container (#1497); the extension resolves it.
+    const pptxMime = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    const response = await post(Buffer.from('x'), {
+      'content-type': 'application/vnd.ms-office',
+      'x-material-filename': encodeURIComponent('slides.pptx'),
+    });
+    expect(response.status).toBe(201);
+    // The resolved concrete MIME drives the reservation and the stored bytes.
+    expect(mocks.registerOwnerMaterial).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ownerId: 'owner-1', kind: 'source', mime: pptxMime }),
+      expect.anything(),
+    );
+    expect(mocks.byteStore.put).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Buffer),
+      pptxMime,
+    );
+  });
+
+  it('still rejects a generic MIME whose extension is not an accepted material', async () => {
+    const response = await post(Buffer.from('x'), {
+      'content-type': 'application/vnd.ms-office',
+      'x-material-filename': encodeURIComponent('blob.bin'),
+    });
+    expect(response.status).toBe(415);
+    expect(mocks.registerOwnerMaterial).not.toHaveBeenCalled();
+  });
+
+  it('answers 415 for a generic MIME before the missing-filename 400', async () => {
+    // A generic type with no filename cannot be resolved, so the mime gate
+    // fires first — error precedence must match the specific-MIME path.
+    const response = await post(Buffer.from('x'), {
+      'content-type': 'application/vnd.ms-office',
+      'x-material-filename': '',
+    });
+    expect(response.status).toBe(415);
+    expect(mocks.registerOwnerMaterial).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing filename header', async () => {
+    const response = await post(Buffer.from('x'), { 'x-material-filename': '' });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: 'MISSING_REQUIRED_FIELD',
+    });
+    expect(mocks.registerOwnerMaterial).not.toHaveBeenCalled();
+  });
+
+  it('rejects a body over the upload cap with 413', async () => {
+    const response = await post(Buffer.alloc(agentRuntimeConfig.maxUploadBytes + 1));
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({
+      maxBytes: Math.min(agentRuntimeConfig.maxDocumentBytes, agentRuntimeConfig.maxUploadBytes),
+    });
+    expect(mocks.finalizeOwnerMaterial).not.toHaveBeenCalled();
+  });
+
+  it('does not include maxBytes when the body exceeds its declared length', async () => {
+    // 0 < declared length < actual body < effective upload cap, so this is the
+    // mismatch 413 and not either size-cap 413.
+    const body = Buffer.from('hello world');
+    const effectiveLimit = Math.min(
+      agentRuntimeConfig.maxDocumentBytes,
+      agentRuntimeConfig.maxUploadBytes,
+    );
+    expect(body.byteLength).toBeGreaterThan(4);
+    expect(body.byteLength).toBeLessThan(effectiveLimit);
+    const response = await post(body, { 'content-length': '4' });
+    expect(response.status).toBe(413);
+    const payload = (await response.json()) as { error?: string };
+    expect(payload.error).toBe('upload body exceeds its declared content length');
+    expect(payload).not.toHaveProperty('maxBytes');
+    expect(mocks.byteStore.put).not.toHaveBeenCalled();
+    expect(mocks.abandonOwnerMaterial).toHaveBeenCalled();
+  });
+
+  it('answers 429 when the owner quota is exceeded', async () => {
+    const { MaterialQuotaExceededError } = await import('@/lib/persistence/owner-materials');
+    mocks.registerOwnerMaterial.mockRejectedValue(new MaterialQuotaExceededError('bytes', 1024));
+    const response = await post(Buffer.from('hello'));
+    expect(response.status).toBe(429);
+    // The reclaim of stale uploads is a separate pre-step; the quota rejection
+    // itself never touches the byte store.
+    expect(mocks.byteStore.delete).not.toHaveBeenCalled();
+  });
+
+  it('abandons the reservation and answers 500 when the byte store fails', async () => {
+    mocks.byteStore.put.mockRejectedValue(new Error('material byte store unavailable'));
+    const response = await post(Buffer.from('hello'));
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ errorCode: 'INTERNAL_ERROR' });
+    expect(mocks.abandonOwnerMaterial).toHaveBeenCalled();
+  });
+
+  it('removes stored bytes before abandoning the reservation when finalize fails', async () => {
+    mocks.finalizeOwnerMaterial.mockRejectedValue(new Error('finalize failed'));
+    const response = await post(Buffer.from('hello'));
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ errorCode: 'INTERNAL_ERROR' });
+    expect(mocks.byteStore.delete).toHaveBeenCalledWith(
+      expect.stringMatching(/^materials\/owner-1\/mat_/),
+    );
+    expect(mocks.abandonOwnerMaterial).toHaveBeenCalled();
+    expect(mocks.byteStore.delete.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.abandonOwnerMaterial.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('keeps the reservation when byte cleanup fails after finalize fails', async () => {
+    mocks.finalizeOwnerMaterial.mockRejectedValue(new Error('finalize failed'));
+    mocks.byteStore.delete.mockRejectedValue(new Error('delete failed'));
+    const response = await post(Buffer.from('hello'));
+    expect(response.status).toBe(500);
+    expect(mocks.abandonOwnerMaterial).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when server persistence is not configured', async () => {
+    mocks.persistenceConfigured = false;
+    const response = await post(Buffer.from('x'));
+    expect(response.status).toBe(404);
+  });
+
+  it('uploads without the agent runtime (classroom generation consumes the library)', async () => {
+    mocks.runtimeConfigured = false;
+    const response = await post(Buffer.from('hello'));
+    expect(response.status).toBe(201);
+  });
+});
+
+describe('configured material upload limit metadata', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ['application/pdf', 1024, 2048, 1024],
+    ['image/png', 1024, 2048, 1024],
+    ['audio/mpeg', 1024, 2048, 2048],
+    ['video/mp4', 1024, 2048, 2048],
+    ['application/pdf', 2048, 1024, 1024],
+  ])(
+    'reports the effective limit for %s (document %i, upload %i)',
+    async (mime, documentBytes, uploadBytes, maxBytes) => {
+      vi.resetModules();
+      vi.stubEnv('MATERIALS_MAX_DOCUMENT_BYTES', String(documentBytes));
+      vi.stubEnv('OPENMAIC_AGENT_MAX_UPLOAD_BYTES', String(uploadBytes));
+      const { POST: configuredPost } = await import('@/app/api/materials/route');
+
+      for (const declared of [true, false]) {
+        const response = await configuredPost(
+          new NextRequest('http://localhost/api/materials', {
+            method: 'POST',
+            headers: {
+              'content-type': mime,
+              'x-material-filename': 'material',
+              ...(declared ? { 'content-length': String(maxBytes + 1) } : {}),
+            },
+            body: Buffer.alloc(maxBytes + 1),
+          }),
+        );
+        expect(response.status).toBe(413);
+        expect(response.headers.get('x-request-id')).toBeTruthy();
+        await expect(response.json()).resolves.toEqual({
+          success: false,
+          errorCode: 'INVALID_REQUEST',
+          error: `upload exceeds ${maxBytes} bytes`,
+          maxBytes,
+        });
+      }
+      expect(mocks.byteStore.put).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('DELETE /api/materials/[id]', () => {
+  const MATERIAL_ID = 'mat_00000000000000000000000000';
+  const del = (id = MATERIAL_ID) =>
+    DELETE(new NextRequest(`http://localhost/api/materials/${id}`, { method: 'DELETE' }), {
+      params: Promise.resolve({ id }),
+    });
+
+  it("deletes the owner's material and removes its bytes", async () => {
+    mocks.deleteOwnerMaterial.mockImplementation(
+      async (
+        _pool: unknown,
+        _owner: string,
+        _id: string,
+        deleteBytes: (key: string) => Promise<void>,
+      ) => {
+        await deleteBytes('materials/owner-1/key');
+        return true;
+      },
+    );
+    const response = await del();
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ materialId: MATERIAL_ID, deleted: true });
+    expect(mocks.deleteOwnerMaterial).toHaveBeenCalledWith(
+      mocks.queryPool,
+      'owner-1',
+      MATERIAL_ID,
+      expect.any(Function),
+    );
+    // The bytes, and the extraction result stored next to them.
+    expect(mocks.byteStore.delete).toHaveBeenCalledWith('materials/owner-1/key');
+    expect(mocks.byteStore.deletePrefix).toHaveBeenCalledWith('materials/owner-1/key.extraction/');
+  });
+
+  it('answers a plain 404 for a material the owner does not have', async () => {
+    mocks.deleteOwnerMaterial.mockResolvedValue(false);
+    const response = await del(`mat_${'z'.repeat(26)}`);
+    expect(response.status).toBe(404);
+    await expect(response.text()).resolves.toBe('Not found');
+  });
+
+  it('maps a retired owner to the owner-retired response', async () => {
+    mocks.deleteOwnerMaterial.mockRejectedValue(new OwnerRetiredError('owner-1'));
+    const response = await del();
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'OWNER_RETIRED' },
+    });
+  });
+
+  it('answers a malformed id with the same 404 before touching the database', async () => {
+    const response = await del(`mat_${'0'.repeat(25)}\u0000`);
+    expect(response.status).toBe(404);
+    expect(mocks.deleteOwnerMaterial).not.toHaveBeenCalled();
+  });
+
+  it('serves without the agent runtime and 404s without server persistence', async () => {
+    mocks.deleteOwnerMaterial.mockResolvedValue(true);
+    mocks.runtimeConfigured = false;
+    expect((await del()).status).toBe(200);
+    mocks.persistenceConfigured = false;
+    expect((await del()).status).toBe(404);
+  });
+});

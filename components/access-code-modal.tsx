@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { ArrowRight, ShieldCheck, LoaderCircle } from 'lucide-react';
+import { DEFAULT_BRAND } from '@/lib/brand/brand-config';
 
 interface AccessCodeModalProps {
   open: boolean;
@@ -118,7 +119,7 @@ export function AccessCodeModal({ open, onSuccess }: AccessCodeModalProps) {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.25, duration: 0.4 }}
               >
-                Vista
+                {DEFAULT_BRAND.shortName}
               </motion.p>
 
               {/* Form */}

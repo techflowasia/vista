@@ -503,19 +503,19 @@ const eslintConfig = defineConfig([
         'error',
         {
           selector:
-            'ImportDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$).+/]',
+            'ImportDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$|@\\/lib\\/brand\\/brand-config$).+/]',
           message:
             'The Hyperframes emitter may import only in-module relatives (./… or one ../…) and the shared pure Quiz renderer ../../quiz/math-text.',
         },
         {
           selector:
-            'ExportNamedDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$).+/]',
+            'ExportNamedDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$|@\\/lib\\/brand\\/brand-config$).+/]',
           message:
             'The Hyperframes emitter may re-export only in-module relatives (./… or one ../…) and ../../quiz/math-text.',
         },
         {
           selector:
-            'ExportAllDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$).+/]',
+            'ExportAllDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$|@\\/lib\\/brand\\/brand-config$).+/]',
           message:
             'The Hyperframes emitter may re-export only in-module relatives (./… or one ../…) and ../../quiz/math-text.',
         },

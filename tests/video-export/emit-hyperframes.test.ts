@@ -72,6 +72,14 @@ describe('emitHyperframes', () => {
     ).toContain('SIL OPEN FONT LICENSE Version 1.1');
   });
 
+  it('uses Vista in exported document chrome while retaining technical composition ids', () => {
+    expect(html).toContain('<title>Sample Lesson — Vista video</title>');
+    expect(project.files.find((file) => file.path === 'README.md')!.content).toContain(
+      '# Sample Lesson — Vista video export',
+    );
+    expect(html).toContain('data-composition-id="openmaic"');
+  });
+
   it('builds one composition driven by one paused GSAP timeline', () => {
     expect(html).toContain('data-composition-id="openmaic"');
     expect(html).toContain('data-width="1920"');

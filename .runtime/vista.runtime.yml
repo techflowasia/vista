@@ -1,0 +1,18 @@
+services:
+  vista:
+    container_name: vista-runtime-app
+    ports: !override
+      - '127.0.0.1:3001:3000'
+    environment:
+      DATABASE_URL: postgresql://openmaic:openmaic-runtime@postgres:5432/openmaic
+      OPENMAIC_PUBLISH_ADDRESS: 127.0.0.1
+  postgres:
+    container_name: vista-runtime-db
+    environment:
+      POSTGRES_DB: openmaic
+      POSTGRES_USER: openmaic
+      POSTGRES_PASSWORD: openmaic-runtime
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U openmaic -d openmaic']
+  render-service:
+    container_name: vista-runtime-render

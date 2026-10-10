@@ -1,0 +1,94 @@
+---
+title: Getting started
+description: Run OpenMAIC locally in five minutes.
+---
+
+OpenMAIC is a Next.js application that runs on your own machine. You need to configure at least one LLM provider: cloud providers usually require an API key, while local Ollama or Lemonade does not.
+
+## Prerequisites
+
+- **Node.js** 22.19.0 or later
+- **pnpm** 10.28.0 (if needed, run `npm install -g pnpm@10.28.0`)
+- At least one LLM provider; cloud providers usually require an API key, while local Ollama or Lemonade does not
+
+## Install
+
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/THU-MAIC/OpenMAIC.git
+cd OpenMAIC
+pnpm install
+```
+
+Installation builds the workspace packages required by the project, so the first install may take some time.
+
+## Configure
+
+Copy the example environment file and configure at least one LLM provider:
+
+```bash
+cp .env.example .env.local
+```
+
+Then configure a model. The simplest file setup is a minimal `openmaic.yml` next to `.env.local`, with the key in `.env.local`:
+
+```bash title=".env.local"
+OPENAI_API_KEY=sk-...
+```
+
+```yaml title="openmaic.yml"
+providers:
+  openai:
+    preset: openai
+    apiKey: ${OPENAI_API_KEY}
+
+slots:
+  llm: openai:gpt-5.5
+```
+
+`openmaic.example.yml` is this same starting point, with optional providers and slots commented out. Without the file, the legacy provider variables still work as long as `DEFAULT_MODEL` names the model:
+
+```bash title=".env.local"
+ANTHROPIC_API_KEY=sk-ant-...
+DEFAULT_MODEL=anthropic:claude-sonnet-4-6
+```
+
+To skip both, start the app and enter a plan's key in **Settings → Token Plan**, or a service's key in **Settings → Model Services**. Without `openmaic.yml`, `DEFAULT_MODEL` or a service set up there, no model is configured and generation fails.
+
+See [Configuration](./configuration.mdx) for complete provider, image/video generation, TTS, ASR, document parsing, web search, access control, and feature flag configuration.
+
+## Run
+
+Courses are stored in PostgreSQL, and the server refuses to start without `DATABASE_URL`. Start a local development database (a separate PostgreSQL in Docker on `127.0.0.1:5432`, shared by every checkout on this machine; set `OPENMAIC_DB_PORT` for another port) and set `DATABASE_URL` in `.env.local`:
+
+```bash
+pnpm db:up
+```
+
+```bash title=".env.local"
+DATABASE_URL=postgres://openmaic:openmaic-dev@127.0.0.1:5432/openmaic
+```
+
+Start the development server:
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). You should see the OpenMAIC classroom generator. Enter a topic or upload learning material, then click Generate; the AI teachers will build a complete, multi-scene classroom. Supported material formats depend on the selected parser and typically include PDF, Office documents, Markdown/plain text, images, and some audio/video formats. Consult the parser's supported formats for the exact range.
+
+## Build for production
+
+```bash
+pnpm build
+DATABASE_URL=postgres://... pnpm start
+```
+
+Or deploy with Docker or on your own server—see the [Deployment guide](./deployment.mdx).
+
+## Next steps
+
+- [Configure providers, TTS, and ACCESS_CODE →](./configuration.mdx)
+- [Deploy with Docker or on your own server →](./deployment.mdx)
+- For architecture details or contribution guidance, visit [GitHub](https://github.com/THU-MAIC/OpenMAIC#-contributing)
