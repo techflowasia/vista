@@ -306,6 +306,77 @@ providers:
       });
     });
 
+    it.each(['true', 'TRUE'])(
+      'fills a base-URL-only TTS entry when enabled=%s',
+      async (enabled) => {
+        vi.stubEnv('TTS_OPENROUTER_BASE_URL', 'https://tts.example/v1');
+        vi.stubEnv('TTS_OPENROUTER_ENABLED', enabled);
+        vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+        vi.stubEnv('OPENROUTER_BASE_URL', 'https://shared.example/v1');
+        vi.stubEnv('OPENROUTER_MODELS', ' model-a, , model-b ');
+        const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+        expect(getServerProviderConfig().tts['openrouter-tts']).toEqual({
+          apiKey: 'shared-key',
+          baseUrl: 'https://tts.example/v1',
+          models: ['model-a', 'model-b'],
+        });
+      },
+    );
+
+    it.each(['', 'false', '1', ' true '])(
+      'does not apply shared TTS fallback when enabled=%s',
+      async (enabled) => {
+        vi.stubEnv('TTS_OPENROUTER_BASE_URL', 'https://tts.example/v1');
+        vi.stubEnv('TTS_OPENROUTER_ENABLED', enabled);
+        vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+        vi.stubEnv('OPENROUTER_MODELS', 'model-a');
+        const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+        expect(getServerProviderConfig().tts['openrouter-tts']).toEqual({
+          apiKey: '',
+          baseUrl: 'https://tts.example/v1',
+          models: undefined,
+        });
+      },
+    );
+
+    it('does not activate TTS from shared credentials alone', async () => {
+      vi.stubEnv('TTS_OPENROUTER_ENABLED', 'true');
+      vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+      const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+      expect(getServerProviderConfig().tts['openrouter-tts']).toBeUndefined();
+    });
+
+    it('preserves dedicated TTS settings over shared settings', async () => {
+      vi.stubEnv('TTS_OPENROUTER_ENABLED', 'true');
+      vi.stubEnv('TTS_OPENROUTER_API_KEY', 'dedicated-key');
+      vi.stubEnv('TTS_OPENROUTER_BASE_URL', 'https://tts.example/v1');
+      vi.stubEnv('TTS_OPENROUTER_MODELS', 'tts-model');
+      vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+      vi.stubEnv('OPENROUTER_BASE_URL', 'https://shared.example/v1');
+      vi.stubEnv('OPENROUTER_MODELS', 'shared-model');
+      const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+      expect(getServerProviderConfig().tts['openrouter-tts']).toEqual({
+        apiKey: 'dedicated-key',
+        baseUrl: 'https://tts.example/v1',
+        models: ['tts-model'],
+      });
+    });
+
+    it('loads and force-disables the registry video provider', async () => {
+      vi.stubEnv('VIDEO_OPENROUTER_API_KEY', 'video-key');
+      vi.stubEnv('VIDEO_OPENROUTER_BASE_URL', 'https://video.example/v1');
+      vi.stubEnv('VIDEO_OPENROUTER_MODELS', 'video-model');
+      vi.stubEnv('VIDEO_OPENROUTER_ENABLED', 'false');
+      const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+      const config = getServerProviderConfig();
+      expect(config.video['openrouter-video']).toEqual({
+        apiKey: 'video-key',
+        baseUrl: 'https://video.example/v1',
+        models: ['video-model'],
+      });
+      expect(config.disabled.video.has('openrouter-video')).toBe(true);
+    });
+
     it('maps OpenRouter env prefix to provider ID', async () => {
       vi.stubEnv('OPENROUTER_API_KEY', 'sk-openrouter');
       vi.stubEnv('OPENROUTER_MODELS', 'deepseek/deepseek-v4-pro,deepseek/deepseek-v4-flash');

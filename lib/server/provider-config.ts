@@ -10,6 +10,11 @@ import path from 'path';
 import yaml from 'js-yaml';
 import { createLogger } from '@/lib/logger';
 import {
+  applyTTSProviderConfig,
+  TTS_KEYLESS_CONFIG_PROVIDERS,
+  VIDEO_PROVIDER_ENV_MAP,
+} from './capability-provider-registry';
+import {
   DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL,
   isQwenCatalogVoice,
   isQwenVoiceCloneModel,
@@ -132,7 +137,7 @@ const VIDEO_ENV_MAP: Record<string, string> = {
   VIDEO_MINIMAX: 'minimax-video',
   VIDEO_GROK: 'grok-video',
   VIDEO_HAPPYHORSE: 'happyhorse',
-  VIDEO_OPENROUTER: 'openrouter-video',
+  ...VIDEO_PROVIDER_ENV_MAP,
 };
 
 const WEB_SEARCH_ENV_MAP: Record<string, string> = {
@@ -515,15 +520,11 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     }),
     yamlData.providers,
   );
-  const tts = loadEnvSection(TTS_ENV_MAP, yamlData.tts, {
-    keylessProviders: new Set(['voxcpm-tts', 'lemonade-tts', 'openrouter-tts']),
-  });
-  const openRouterTTS = tts['openrouter-tts'];
-  if (openRouterTTS && process.env.TTS_OPENROUTER_ENABLED?.toLowerCase() === 'true') {
-    openRouterTTS.apiKey ||= process.env.OPENROUTER_API_KEY || '';
-    openRouterTTS.baseUrl ||= process.env.OPENROUTER_BASE_URL;
-    openRouterTTS.models ||= splitModels(process.env.OPENROUTER_MODELS);
-  }
+  const tts = applyTTSProviderConfig(
+    loadEnvSection(TTS_ENV_MAP, yamlData.tts, {
+      keylessProviders: new Set(['voxcpm-tts', 'lemonade-tts', ...TTS_KEYLESS_CONFIG_PROVIDERS]),
+    }),
+  );
 
   return {
     providers,
