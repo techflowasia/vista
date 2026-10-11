@@ -135,7 +135,7 @@ services:
     restart: unless-stopped
 
 networks:
-  default: {}
+  default:
     external: true
     name: portainer_default
   # Isolated network for app <-> render-service traffic. `internal: true` means
