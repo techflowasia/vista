@@ -136,6 +136,8 @@ services:
 
 networks:
   default: {}
+    external: true
+    name: portainer_default
   # Isolated network for app <-> render-service traffic. `internal: true` means
   # no route to the host or internet. Both services share it so the app can
   # reach the render service; the render container additionally blocks its own
