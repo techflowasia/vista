@@ -49,3 +49,18 @@ Image จะถูก push เป็น `ghcr.io/techflowasia/vista-app:<version
 ```bash
 docker compose --env-file .env.local -f vista.db.yml up -d
 ```
+
+```bash
+docker compose --env-file .env.local -f vista.app.yml up -d
+or
+docker compose --env-file .env.local -f vista.app.yml up -d --build
+```
+
+```bash
+docker compose -f vista.app.yml logs -f vista
+```
+
+```bash
+docker compose -f vista.app.yml ps
+docker compose -f vista.app.yml down
+```
