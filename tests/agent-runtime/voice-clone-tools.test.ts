@@ -504,8 +504,16 @@ describe('voice clone agent tools', () => {
       endSec: 3,
     } as never);
 
-    expect(clipAudio).toHaveBeenCalledWith(sourceAudio, 'mat_source.mp4', 1, 3);
-    expect(storeRawAsset).toHaveBeenCalledWith('ses_1', clipWav, 'audio/wav');
+    expect(clipAudio).toHaveBeenCalledOnce();
+    const [clippedSource, sourceName, startSec, endSec] = clipAudio.mock.calls[0];
+    expect(Buffer.isBuffer(clippedSource)).toBe(true);
+    expect(clippedSource.equals(sourceAudio)).toBe(true);
+    expect([sourceName, startSec, endSec]).toEqual(['mat_source.mp4', 1, 3]);
+    expect(storeRawAsset).toHaveBeenCalledOnce();
+    const [storedSessionId, storedWav, storedMime] = storeRawAsset.mock.calls[0];
+    expect(Buffer.isBuffer(storedWav)).toBe(true);
+    expect(storedWav.equals(clipWav)).toBe(true);
+    expect([storedSessionId, storedMime]).toEqual(['ses_1', 'audio/wav']);
     expect(createMaterial).toHaveBeenCalledWith(
       'ses_1',
       expect.objectContaining({
