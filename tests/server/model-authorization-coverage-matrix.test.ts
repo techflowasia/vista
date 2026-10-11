@@ -22,6 +22,14 @@ vi.mock('@/lib/ai/llm', () => ({
     return { text: '{"score":1,"comment":"OK"}' };
   },
 }));
+<<<<<<< HEAD
+=======
+vi.mock('@/lib/orchestration/stateless-generate', () => ({
+  statelessGenerate: async function* () {
+    mocks.upstream();
+  },
+}));
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
 vi.mock('@/lib/chat/pi/director-loop', () => ({
   runPiDirectorLoop: async () => {
     mocks.upstream();
@@ -218,6 +226,14 @@ interface RouteCase {
 }
 const ROUTES: RouteCase[] = [
   {
+<<<<<<< HEAD
+=======
+    path: 'chat',
+    invoke: async (m) =>
+      (await import('@/app/api/chat/route')).POST(request('/api/chat', chatBody(m))),
+  },
+  {
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
     path: 'chat/pi',
     invoke: async (m) =>
       (await import('@/app/api/chat/pi/route')).POST(request('/api/chat/pi', chatBody(m))),
@@ -418,6 +434,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.saved = null;
   vi.stubEnv('DATABASE_URL', '');
+<<<<<<< HEAD
+=======
+  vi.stubEnv('NEXT_PUBLIC_PI_CHAT_ENABLED', 'true');
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
   for (const name of [
     'OPENAI',
     'IMAGE_SEEDREAM',
