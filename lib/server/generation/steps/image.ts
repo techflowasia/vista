@@ -54,7 +54,7 @@ export async function generateImageStep(
     connection.origin === 'configuration'
       ? (connection.modelId ?? provider?.models?.[0]?.id)
       : connection.origin === 'default'
-        ? resolveImageModel(providerId, input.requestedModel)
+        ? (resolveImageModel(providerId, input.requestedModel) ?? provider?.models?.[0]?.id)
         : connection.modelId;
   // Workflow-based providers (e.g. comfyui-image) have no model catalog and
   // need no model; everyone else must resolve one.
