@@ -119,6 +119,36 @@ function getGlobalThinkingConfig(): ThinkingConfig | undefined {
   return undefined;
 }
 
+const COURSE_GENERATION_SOURCES = new Set([
+  'scene-outlines-stream',
+  'scene-content',
+  'scene-content:slide',
+  'scene-content:quiz',
+  'scene-content:interactive',
+  'scene-content:pbl',
+  'scene-actions',
+  'agent-profiles',
+  'web-search-query-rewrite',
+  'pbl-v2-planner',
+]);
+
+function capCourseOutputTokens<T extends GenerateTextParams | StreamTextParams>(
+  params: T,
+  source: string,
+): T {
+  if (!COURSE_GENERATION_SOURCES.has(source) || getModelProviderId(params) !== 'openrouter') {
+    return params;
+  }
+  const modelId = getCanonicalModelId('openrouter', getModelId(params));
+  const modelLimit = PROVIDERS.openrouter.models.find(
+    (model) => model.id === modelId,
+  )?.outputWindow;
+  return {
+    ...params,
+    maxOutputTokens: Math.min(params.maxOutputTokens ?? 16384, modelLimit ?? 16384, 16384),
+  };
+}
+
 type ProviderOptions = Record<string, Record<string, JSONValue | undefined>>;
 
 function getAnthropicEffort(
@@ -390,7 +420,10 @@ export async function callLLM<T extends GenerateTextParams>(
   > {
     try {
       const effectiveThinking = thinking ?? getGlobalThinkingConfig();
-      const injectedParams = injectProviderOptions(roundParams, effectiveThinking);
+      const injectedParams = injectProviderOptions(
+        capCourseOutputTokens(roundParams, source),
+        effectiveThinking,
+      );
 
       // Wrap in thinkingContext so the custom fetch wrapper in providers.ts
       // can read the config and inject vendor-specific body params for
@@ -902,7 +935,10 @@ export function streamLLM<T extends StreamTextParams>(
     } as T;
   }
 
-  const injectedParams = injectProviderOptions(wrappedParams, effectiveThinking);
+  const injectedParams = injectProviderOptions(
+    capCourseOutputTokens(wrappedParams, source),
+    effectiveThinking,
+  );
   const result = thinkingContext.run(effectiveThinking, () =>
     streamText(withRetryGate(injectedParams)),
   );
