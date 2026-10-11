@@ -1,7 +1,7 @@
 services:
   vista:
     container_name: vista-app
-    image: ghcr.io/techflowasia/vista-app:1.0.0
+    image: ghcr.io/techflowasia/vista-app:1.0.1
     build:
       context: .
       args:

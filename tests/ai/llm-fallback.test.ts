@@ -18,7 +18,8 @@ const fallbackMock = vi.hoisted(() => ({
   isEmptyLlmOutput: vi.fn((text: string | null | undefined) => !text || text.trim().length === 0),
 }));
 
-vi.mock('ai', () => ({
+vi.mock('ai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('ai')>()),
   generateText: aiMock.generateText,
   streamText: aiMock.streamText,
 }));
@@ -33,7 +34,8 @@ vi.mock('@/lib/server/usage-storage', () => ({
 
 vi.mock('@/lib/server/llm-fallback', () => fallbackMock);
 
-import { callLLM } from '@/lib/ai/llm';
+import { callLLM, streamLLM } from '@/lib/ai/llm';
+import { PROVIDERS } from '@/lib/ai/providers';
 import { attachModelFallback } from '@/lib/ai/model-fallbacks';
 import type { GenerateTextResult } from 'ai';
 
@@ -44,12 +46,176 @@ function okResult(): GenerateTextResult<never, never> {
 describe('callLLM retryable-failure fallback', () => {
   beforeEach(() => {
     aiMock.generateText.mockReset();
+    aiMock.streamText.mockReset();
     fallbackMock.resolveFallbackModel.mockReset();
     fallbackMock.isRetryableLlmError.mockReset();
     fallbackMock.shouldFallbackFor.mockReset();
     fallbackMock.logFallbackFired.mockReset();
     fallbackMock.isEmptyLlmOutput.mockClear();
     aiMock.generateText.mockResolvedValue(okResult());
+  });
+
+  it.each([
+    'scene-content',
+    'scene-content:slide',
+    'scene-content:quiz',
+    'scene-content:interactive',
+    'scene-content:pbl',
+    'scene-actions',
+    'agent-profiles',
+    'web-search-query-rewrite',
+    'pbl-v2-planner',
+  ])('caps OpenRouter course generation for %s at 16384', async (source) => {
+    const params = {
+      model: { provider: 'openrouter.chat', modelId: 'unknown-model' } as never,
+      prompt: 'hi',
+      maxOutputTokens: 65536,
+    };
+
+    await callLLM(params, source);
+
+    expect(aiMock.generateText.mock.calls[0][0].maxOutputTokens).toBe(16384);
+    expect(params.maxOutputTokens).toBe(65536);
+  });
+
+  it.each([
+    ['openai.responses', 'openrouter.chat', 65536, 16384],
+    ['openrouter.chat', 'openai.responses', 16384, 65536],
+    ['openrouter.chat', 'openrouter.chat', 16384, 16384],
+  ])(
+    'caps each effective course model independently (%s to %s)',
+    async (primaryProvider, fallbackProvider, primaryBudget, fallbackBudget) => {
+      const primary = { provider: primaryProvider, modelId: 'unknown-primary' } as never;
+      const fallback = { provider: fallbackProvider, modelId: 'unknown-fallback' } as never;
+      attachModelFallback(primary, async () => ({ model: fallback, modelString: 'fallback' }));
+      fallbackMock.shouldFallbackFor.mockReturnValue(true);
+      aiMock.generateText.mockRejectedValueOnce(
+        Object.assign(new Error('upstream timeout'), { statusCode: 408 }),
+      );
+
+      await callLLM({ model: primary, prompt: 'hi', maxOutputTokens: 65536 }, 'scene-content');
+
+      expect(aiMock.generateText).toHaveBeenCalledTimes(2);
+      expect(aiMock.generateText.mock.calls[0][0].maxOutputTokens).toBe(primaryBudget);
+      expect(aiMock.generateText.mock.calls[1][0].maxOutputTokens).toBe(fallbackBudget);
+    },
+  );
+
+  it('preserves a smaller requested budget on primary and fallback', async () => {
+    const primary = { provider: 'openrouter.chat', modelId: 'unknown-primary' } as never;
+    attachModelFallback(primary, async () => ({
+      model: { provider: 'openrouter.chat', modelId: 'unknown-fallback' } as never,
+      modelString: 'openrouter:unknown-fallback',
+    }));
+    fallbackMock.shouldFallbackFor.mockReturnValue(true);
+    aiMock.generateText.mockRejectedValueOnce(
+      Object.assign(new Error('upstream timeout'), { statusCode: 408 }),
+    );
+
+    await callLLM({ model: primary, prompt: 'hi', maxOutputTokens: 4096 }, 'scene-content');
+
+    expect(aiMock.generateText.mock.calls.map(([params]) => params.maxOutputTokens)).toEqual([
+      4096, 4096,
+    ]);
+  });
+
+  it('preserves a smaller effective model limit on fallback', async () => {
+    const smallModel = {
+      ...PROVIDERS.openrouter.models[0],
+      id: 'small-output',
+      outputWindow: 8192,
+    };
+    const primary = { provider: 'openai.responses', modelId: 'unknown-primary' } as never;
+    PROVIDERS.openrouter.models.push(smallModel);
+    try {
+      attachModelFallback(primary, async () => ({
+        model: { provider: 'openrouter.chat', modelId: smallModel.id } as never,
+        modelString: `openrouter:${smallModel.id}`,
+      }));
+      fallbackMock.shouldFallbackFor.mockReturnValue(true);
+      aiMock.generateText.mockRejectedValueOnce(
+        Object.assign(new Error('upstream timeout'), { statusCode: 408 }),
+      );
+
+      await callLLM({ model: primary, prompt: 'hi', maxOutputTokens: 65536 }, 'scene-content');
+
+      expect(aiMock.generateText.mock.calls[1][0].maxOutputTokens).toBe(8192);
+    } finally {
+      PROVIDERS.openrouter.models.pop();
+    }
+  });
+
+  it('caps an unspecified course budget', async () => {
+    await callLLM(
+      { model: { provider: 'openrouter', modelId: 'unknown-model' } as never, prompt: 'hi' },
+      'agent-profiles',
+    );
+
+    expect(aiMock.generateText.mock.calls[0][0].maxOutputTokens).toBe(16384);
+  });
+
+  it.each(['verify-model', 'quiz-grade', 'pbl-v2-runtime', 'unrelated', 'scene-content:unknown'])(
+    'leaves unrelated OpenRouter call %s unchanged',
+    async (source) => {
+      await callLLM(
+        {
+          model: { provider: 'openrouter.chat', modelId: 'unknown-model' } as never,
+          prompt: 'hi',
+          maxOutputTokens: 65536,
+        },
+        source,
+      );
+
+      expect(aiMock.generateText.mock.calls[0][0].maxOutputTokens).toBe(65536);
+    },
+  );
+
+  it.each(['openai.responses', 'deepseek.chat', 'custom.chat'])(
+    'leaves course calls to %s unchanged',
+    async (provider) => {
+      await callLLM(
+        {
+          model: { provider, modelId: 'unknown-model' } as never,
+          prompt: 'hi',
+          maxOutputTokens: 65536,
+        },
+        'scene-content',
+      );
+
+      expect(aiMock.generateText.mock.calls[0][0].maxOutputTokens).toBe(65536);
+    },
+  );
+
+  it('caps streamed OpenRouter outlines using the effective fallback model', () => {
+    for (const provider of ['openai.responses', 'openrouter.chat']) {
+      streamLLM(
+        {
+          model: { provider, modelId: 'unknown-model' } as never,
+          prompt: 'hi',
+          maxOutputTokens: 65536,
+        },
+        'scene-outlines-stream',
+        undefined,
+        { enabled: false },
+      );
+    }
+
+    expect(aiMock.streamText.mock.calls.map(([params]) => params.maxOutputTokens)).toEqual([
+      65536, 16384,
+    ]);
+  });
+
+  it('leaves unrelated OpenRouter streams unchanged', () => {
+    streamLLM(
+      {
+        model: { provider: 'openrouter.chat', modelId: 'unknown-model' } as never,
+        prompt: 'hi',
+        maxOutputTokens: 65536,
+      },
+      'pbl-v2-runtime',
+    );
+
+    expect(aiMock.streamText.mock.calls[0][0].maxOutputTokens).toBe(65536);
   });
 
   it("retries on the model's attached slot fallback, never MODEL_FALLBACK", async () => {

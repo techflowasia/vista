@@ -20,6 +20,8 @@
 
 ```bash
 pnpm run vista:build
+or
+node run.mjs vista:build
 ```
 
 คำสั่งจะ tag image เป็น `ghcr.io/techflowasia/vista-app:<version>` ตาม `version` ใน `vista.package.json` และโหลดเข้า local Docker image store
@@ -36,6 +38,8 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-username> --password-stdin
 
 ```bash
 pnpm run vista:push
+or
+node run.mjs vista:push
 ```
 
 Image จะถูก push เป็น `ghcr.io/techflowasia/vista-app:<version>` โดย `<version>` มาจาก `vista.package.json` เช่น `1.0.1`

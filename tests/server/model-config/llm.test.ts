@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ModelConfigLayer, SlotResolution } from '@/lib/server/model-config/resolve-slot';
 import type { ResolvedModel } from '@/lib/server/resolve-model';
@@ -10,7 +10,7 @@ vi.mock('@/lib/server/model-config/runtime', async (importOriginal) => ({
   lookupStage: vi.fn(async () => state.lookup),
 }));
 
-const { lookupFromLayers, SlotDisabledError, SlotUnassignedError } =
+const { lookupFromLayers, setDeploymentConfigForTests, SlotDisabledError, SlotUnassignedError } =
   await import('@/lib/server/model-config/runtime');
 const { resolveStageModel } = await import('@/lib/server/model-config/llm');
 
@@ -24,6 +24,14 @@ const legacyModel = { modelString: 'openai:from-header' } as ResolvedModel;
 describe('resolveStageModel', () => {
   beforeEach(() => {
     vi.stubEnv('ALLOW_LOCAL_NETWORKS', '');
+    state.lookup = undefined;
+    setDeploymentConfigForTests({ layer: null, legacy: false, notices: [] });
+  });
+
+  afterEach(() => {
+    state.lookup = undefined;
+    setDeploymentConfigForTests();
+    vi.unstubAllEnvs();
   });
 
   it('builds the configured model with its options', async () => {
@@ -72,9 +80,8 @@ describe('resolveStageModel', () => {
   });
 
   it("keeps openmaic.yml's default over what the request names, and a legacy default under it", async () => {
-    const { setDeploymentConfigForTests } = await import('@/lib/server/model-config/runtime');
     const deployment = layer('deployment', {
-      providers: { openai: { preset: 'openai', apiKey: 'sk-operator' } },
+      providers: { openai: { preset: 'openai', apiKey: 'sk-operator', models: ['gpt-5.6-mini'] } },
       slots: { llm: 'openai:gpt-5.6' },
     });
     state.lookup = lookupFromLayers('course.outline', { deployment, workspace: null });

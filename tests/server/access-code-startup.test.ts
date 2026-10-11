@@ -5,6 +5,7 @@ import {
   warnIfAccessCodeIsShort,
   warnIfAccessCodeIsUnset,
 } from '@/lib/server/access-code-warning';
+import { setDeploymentConfigForTests } from '@/lib/server/model-config/runtime';
 
 // register() starts the background workers. Real ones keep polling the
 // database after the file's tests end and log into a closing worker.
@@ -25,20 +26,28 @@ vi.mock('@/lib/persistence/asset-collector-schedule', () => ({
 }));
 vi.mock('@/lib/server/config-validation', () => ({ validateServerConfig: vi.fn() }));
 vi.mock('@/lib/server/instance-secret-check', () => ({ warnAboutInstanceSecret: vi.fn() }));
-vi.mock('@/lib/config/feature-flags', () => ({ isAgentRuntimeConfigured: () => false }));
+vi.mock('@/lib/config/feature-flags', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/config/feature-flags')>()),
+  isAgentRuntimeConfigured: () => false,
+}));
 
 beforeEach(() => {
   resetAccessCodeWarningForTests();
+  setDeploymentConfigForTests({ layer: null, legacy: false, notices: [] });
   vi.stubEnv('LOG_LEVEL', 'warn');
   vi.stubEnv('ACCESS_CODE', undefined);
   // register() refuses to boot without a database; these cases start past it.
   vi.stubEnv('DATABASE_URL', 'postgres://access-code-test/openmaic');
   vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 afterEach(() => {
+  setDeploymentConfigForTests();
   vi.unstubAllEnvs();
+  const errors = vi.mocked(console.error).mock.calls;
   vi.restoreAllMocks();
+  expect(errors).toEqual([]);
 });
 
 describe('missing access-code startup warning', () => {

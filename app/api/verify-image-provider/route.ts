@@ -13,6 +13,7 @@
  *
  * Response: { success: boolean, message: string }
  */
+import { modelAuthorizationResponse } from '@/lib/server/api-response';
 
 import { NextRequest } from 'next/server';
 import { IMAGE_PROVIDERS, testImageConnectivity } from '@/lib/media/image-providers';
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
       return apiError('MISSING_API_KEY', 400, 'No API key configured');
     }
 
-    const model = resolveImageModel(providerId, clientModel);
+    const model = resolveImageModel(providerId, clientModel) ?? provider?.models?.[0]?.id;
     // Workflow-based providers (e.g. comfyui-image) have no model catalog and
     // need no model; everyone else must resolve one.
     if (!model && provider?.models && provider.models.length > 0) {
@@ -130,6 +131,8 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess({ message: result.message });
   } catch (err) {
+    const authorization = modelAuthorizationResponse(err);
+    if (authorization) return authorization;
     log.error(`Image provider verification failed: ${err}`, err);
     return apiError('INTERNAL_ERROR', 500, 'Connectivity test error');
   }

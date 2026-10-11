@@ -102,6 +102,7 @@ vi.mock('fs', async (importOriginal) => {
 
 describe('provider-config', () => {
   beforeEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for('openmaic.model-config.deployment')];
     vi.resetModules();
     vi.unstubAllEnvs();
     clearProviderEnv();
@@ -207,6 +208,9 @@ describe('provider-config', () => {
 
     it('treats zero, negative, and non-numeric values as off', async () => {
       for (const value of ['0', '-2', 'abc']) {
+        delete (globalThis as Record<symbol, unknown>)[
+          Symbol.for('openmaic.model-config.deployment')
+        ];
         vi.resetModules();
         vi.stubEnv('PARALLEL_SCENE_CONCURRENCY', value);
         const { getParallelSceneConcurrency } = await import('@/lib/server/provider-config');
@@ -304,6 +308,77 @@ providers:
         baseUrl: 'https://openrouter.ai/api/v1',
         models: ['openai/gpt-audio-mini', 'openai/gpt-audio'],
       });
+    });
+
+    it.each(['true', 'TRUE'])(
+      'fills a base-URL-only TTS entry when enabled=%s',
+      async (enabled) => {
+        vi.stubEnv('TTS_OPENROUTER_BASE_URL', 'https://tts.example/v1');
+        vi.stubEnv('TTS_OPENROUTER_ENABLED', enabled);
+        vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+        vi.stubEnv('OPENROUTER_BASE_URL', 'https://shared.example/v1');
+        vi.stubEnv('OPENROUTER_MODELS', ' model-a, , model-b ');
+        const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+        expect(getServerProviderConfig().tts['openrouter-tts']).toEqual({
+          apiKey: 'shared-key',
+          baseUrl: 'https://tts.example/v1',
+          models: ['model-a', 'model-b'],
+        });
+      },
+    );
+
+    it.each(['', 'false', '1', ' true '])(
+      'does not apply shared TTS fallback when enabled=%s',
+      async (enabled) => {
+        vi.stubEnv('TTS_OPENROUTER_BASE_URL', 'https://tts.example/v1');
+        vi.stubEnv('TTS_OPENROUTER_ENABLED', enabled);
+        vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+        vi.stubEnv('OPENROUTER_MODELS', 'model-a');
+        const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+        expect(getServerProviderConfig().tts['openrouter-tts']).toEqual({
+          apiKey: '',
+          baseUrl: 'https://tts.example/v1',
+          models: undefined,
+        });
+      },
+    );
+
+    it('does not activate TTS from shared credentials alone', async () => {
+      vi.stubEnv('TTS_OPENROUTER_ENABLED', 'true');
+      vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+      const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+      expect(getServerProviderConfig().tts['openrouter-tts']).toBeUndefined();
+    });
+
+    it('preserves dedicated TTS settings over shared settings', async () => {
+      vi.stubEnv('TTS_OPENROUTER_ENABLED', 'true');
+      vi.stubEnv('TTS_OPENROUTER_API_KEY', 'dedicated-key');
+      vi.stubEnv('TTS_OPENROUTER_BASE_URL', 'https://tts.example/v1');
+      vi.stubEnv('TTS_OPENROUTER_MODELS', 'tts-model');
+      vi.stubEnv('OPENROUTER_API_KEY', 'shared-key');
+      vi.stubEnv('OPENROUTER_BASE_URL', 'https://shared.example/v1');
+      vi.stubEnv('OPENROUTER_MODELS', 'shared-model');
+      const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+      expect(getServerProviderConfig().tts['openrouter-tts']).toEqual({
+        apiKey: 'dedicated-key',
+        baseUrl: 'https://tts.example/v1',
+        models: ['tts-model'],
+      });
+    });
+
+    it('loads and force-disables the registry video provider', async () => {
+      vi.stubEnv('VIDEO_OPENROUTER_API_KEY', 'video-key');
+      vi.stubEnv('VIDEO_OPENROUTER_BASE_URL', 'https://video.example/v1');
+      vi.stubEnv('VIDEO_OPENROUTER_MODELS', 'video-model');
+      vi.stubEnv('VIDEO_OPENROUTER_ENABLED', 'false');
+      const { getServerProviderConfig } = await import('@/lib/server/provider-config');
+      const config = getServerProviderConfig();
+      expect(config.video['openrouter-video']).toEqual({
+        apiKey: 'video-key',
+        baseUrl: 'https://video.example/v1',
+        models: ['video-model'],
+      });
+      expect(config.disabled.video.has('openrouter-video')).toBe(true);
     });
 
     it('maps OpenRouter env prefix to provider ID', async () => {
@@ -511,8 +586,9 @@ providers:
 
       expect(resolveWebSearchApiKey('claude', undefined)).toBe('claude-env-key');
       expect(resolveWebSearchBaseUrl('claude')).toBe('https://proxy.example.com/anthropic');
-      // Server-pinned model (first entry) is authoritative over the client model.
-      expect(resolveWebSearchModel('claude', 'claude-haiku-4-5')).toBe('claude-sonnet-5');
+      // Only listed models may use this credential.
+      expect(() => resolveWebSearchModel('claude', 'claude-haiku-4-5')).toThrow('not authorized');
+      expect(resolveWebSearchModel('claude', 'claude-opus-5')).toBe('claude-opus-5');
       expect(getServerWebSearchProviders().claude).toEqual({});
     });
 
@@ -664,8 +740,8 @@ pdf:
       const { resolveImageModel } = await import('@/lib/server/provider-config');
       // Allowlisted client choice wins over the managed default.
       expect(resolveImageModel('seedream', 'model-b')).toBe('model-b');
-      // Non-allowlisted client choice falls back to the managed default.
-      expect(resolveImageModel('seedream', 'client-model')).toBe('model-a');
+      // Unlisted client models are refused before using the server credential.
+      expect(() => resolveImageModel('seedream', 'client-model')).toThrow('not authorized');
       expect(resolveImageModel('seedream')).toBe('model-a');
     });
 
@@ -697,8 +773,8 @@ pdf:
       const { resolveVideoModel } = await import('@/lib/server/provider-config');
       // Allowlisted client choice wins over the managed default.
       expect(resolveVideoModel('seedance', 'v2')).toBe('v2');
-      // Non-allowlisted client choice falls back to the managed default.
-      expect(resolveVideoModel('seedance', 'not-allowed')).toBe('v1');
+      // Unlisted client models are refused before using the server credential.
+      expect(() => resolveVideoModel('seedance', 'not-allowed')).toThrow('not authorized');
       expect(resolveVideoModel('seedance')).toBe('v1');
     });
 
@@ -736,7 +812,7 @@ video:
       );
       // A garbage-only `models: [""]` list normalizes to no pin at all — it must
       // never become a truthy pin of "" (the YAML path used to copy it verbatim).
-      expect(resolveVideoModel('kling')).toBeUndefined();
+      expect(() => resolveVideoModel('kling')).toThrow('not authorized');
     });
 
     it('resolves the default video provider as the first server-configured one', async () => {
@@ -757,8 +833,8 @@ video:
       const { resolveASRModel } = await import('@/lib/server/provider-config');
       // Allowlisted client choice wins over the managed default.
       expect(resolveASRModel('openai-whisper', 'whisper-y')).toBe('whisper-y');
-      // Non-allowlisted client choice falls back to the managed default.
-      expect(resolveASRModel('openai-whisper', 'client-model')).toBe('whisper-x');
+      // Unlisted client models are refused before using the server credential.
+      expect(() => resolveASRModel('openai-whisper', 'client-model')).toThrow('not authorized');
       expect(resolveASRModel('openai-whisper')).toBe('whisper-x');
     });
 
@@ -1091,14 +1167,15 @@ video:
 
     it('maps VC sentinels to the resolved model and rejects pin bypasses', async () => {
       vi.stubEnv('TTS_QWEN_API_KEY', 'key');
-      vi.stubEnv('TTS_QWEN_MODELS', 'qwen3-tts-flash');
+      vi.stubEnv('TTS_QWEN_MODELS', 'qwen3-tts-flash,operator-vc-model');
       vi.stubEnv('TTS_QWEN_VOICE_CLONE_MODEL', 'operator-vc-model');
       const { resolveTTSModel } = await import('@/lib/server/provider-config');
-      expect(resolveTTSModel('qwen-tts', 'qwen3-tts-vc-custom', 'clone-1')).toBe(
-        'operator-vc-model',
+      expect(() => resolveTTSModel('qwen-tts', 'qwen3-tts-vc-custom', 'clone-1')).toThrow(
+        'not authorized',
       );
+      expect(resolveTTSModel('qwen-tts', 'operator-vc-model', 'clone-1')).toBe('operator-vc-model');
       expect(() => resolveTTSModel('qwen-tts', 'qwen3-tts-flash-other', 'Cherry')).toThrow(
-        'not allowed',
+        'not authorized',
       );
       expect(resolveTTSModel('qwen-tts', 'operator-vc-model', 'Cherry')).toBe('qwen3-tts-flash');
     });
@@ -1114,7 +1191,7 @@ video:
       vi.stubEnv('TTS_QWEN_MODELS', 'operator-vc-model');
       vi.stubEnv('TTS_QWEN_VOICE_CLONE_MODEL', 'operator-vc-model');
       const { resolveTTSModel } = await import('@/lib/server/provider-config');
-      expect(() => resolveTTSModel('qwen-tts', undefined, 'Cherry')).toThrow('not allowed');
+      expect(() => resolveTTSModel('qwen-tts', undefined, 'Cherry')).toThrow('not authorized');
     });
   });
 

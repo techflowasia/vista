@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "scripts": {
     "vista:db:up": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml up -d --wait postgres",
     "vista:db:down": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml stop postgres",
