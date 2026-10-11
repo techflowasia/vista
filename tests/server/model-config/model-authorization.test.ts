@@ -9,11 +9,17 @@ import {
 const mocks = vi.hoisted(() => ({
   getModel: vi.fn(() => ({ model: { id: 'stub' } })),
   callLLM: vi.fn(async () => ({ text: 'OK' })),
+<<<<<<< HEAD
   pi: vi.fn(async () => {}),
   invalidOwner: false,
   managedBaseUrl: undefined as string | undefined,
   ssrfError: null as string | null,
   workspaceId: null as string | null,
+=======
+  generate: vi.fn(async function* () {}),
+  pi: vi.fn(async () => {}),
+  invalidOwner: false,
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
 }));
 vi.mock('@/lib/ai/providers', async (original) => ({
   ...(await original<typeof import('@/lib/ai/providers')>()),
@@ -25,11 +31,19 @@ vi.mock('@/lib/server/provider-config', async (original) => ({
     ['openai', 'anthropic'].includes(id),
   resolveApiKey: (id: string, own: string) =>
     ['openai', 'anthropic'].includes(id) ? 'server-secret' : own,
+<<<<<<< HEAD
   resolveBaseUrl: (id: string, own?: string) =>
     ['openai', 'anthropic'].includes(id) ? mocks.managedBaseUrl : own,
   resolveProxy: () => undefined,
 }));
 vi.mock('@/lib/ai/llm', () => ({ callLLM: mocks.callLLM }));
+=======
+  resolveBaseUrl: (_id: string, own?: string) => own,
+  resolveProxy: () => undefined,
+}));
+vi.mock('@/lib/ai/llm', () => ({ callLLM: mocks.callLLM }));
+vi.mock('@/lib/orchestration/stateless-generate', () => ({ statelessGenerate: mocks.generate }));
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
 vi.mock('@/lib/chat/pi/director-loop', () => ({ runPiDirectorLoop: mocks.pi }));
 vi.mock('@/lib/server/identity/resolve', async (original) => ({
   ...(await original<typeof import('@/lib/server/identity/resolve')>()),
@@ -40,6 +54,7 @@ vi.mock('@/lib/server/identity/resolve', async (original) => ({
 }));
 vi.mock('@/lib/server/ssrf-guard', async (original) => ({
   ...(await original<typeof import('@/lib/server/ssrf-guard')>()),
+<<<<<<< HEAD
   validateClientBaseUrl: async () => mocks.ssrfError,
   validateUrlForSSRF: async () => null,
 }));
@@ -48,11 +63,20 @@ vi.mock('@/lib/server/model-config/runtime', async (original) => ({
   // Identity/database boundary only; slot lookup and model resolution stay real.
   requestWorkspaceId: async () => mocks.workspaceId,
 }));
+=======
+  validateClientBaseUrl: async () => null,
+  validateUrlForSSRF: async () => null,
+}));
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
 
 const runtime = await import('@/lib/server/model-config/runtime');
 const { resolveModel } = await import('@/lib/server/resolve-model');
 const { resolveSlot } = await import('@/lib/server/model-config/resolve-slot');
 const { POST: verify } = await import('@/app/api/verify-model/route');
+<<<<<<< HEAD
+=======
+const { POST: chat } = await import('@/app/api/chat/route');
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
 const { POST: pi } = await import('@/app/api/chat/pi/route');
 
 function deployment(config: ModelConfigFile, legacy = false) {
@@ -92,10 +116,16 @@ const config: ModelConfigFile = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.invalidOwner = false;
+<<<<<<< HEAD
   mocks.managedBaseUrl = undefined;
   mocks.ssrfError = null;
   vi.stubEnv('OPENAI_API_KEY', 'server-secret');
   vi.stubEnv('DATABASE_URL', '');
+=======
+  vi.stubEnv('OPENAI_API_KEY', 'server-secret');
+  vi.stubEnv('DATABASE_URL', '');
+  vi.stubEnv('NEXT_PUBLIC_PI_CHAT_ENABLED', 'true');
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
 
   deployment(config, true);
 });
@@ -167,7 +197,11 @@ describe('operator model authorization', () => {
   );
   it('retains the locked classroom model despite body and header overrides', async () => {
     deployment({ ...config, slots: { classroom: 'openai:primary' }, lock: ['classroom'] });
+<<<<<<< HEAD
     const response = await pi(
+=======
+    const response = await chat(
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
       request(chatBody('openai:unlisted'), { 'chat-adapter': 'openai:unlisted' }),
     );
     await response.text();
@@ -198,6 +232,7 @@ describe('operator model authorization', () => {
     );
     expect(mocks.getModel).not.toHaveBeenCalled();
   });
+<<<<<<< HEAD
   it('rejects chat model and header substitution before generation', async () => {
     for (const routed of [false, true]) {
       const response = await pi(
@@ -211,6 +246,25 @@ describe('operator model authorization', () => {
     expect(mocks.getModel).not.toHaveBeenCalled();
     expect(mocks.pi).not.toHaveBeenCalled();
   });
+=======
+  it.each([chat, pi])(
+    'rejects chat model and header substitution before generation',
+    async (handler) => {
+      for (const routed of [false, true]) {
+        const response = await handler(
+          request(
+            chatBody(routed ? 'openai:allowed' : 'openai:unlisted'),
+            routed ? { 'chat-adapter': 'openai:unlisted' } : undefined,
+          ),
+        );
+        expect(response.status).toBe(403);
+      }
+      expect(mocks.getModel).not.toHaveBeenCalled();
+      expect(mocks.generate).not.toHaveBeenCalled();
+      expect(mocks.pi).not.toHaveBeenCalled();
+    },
+  );
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
   it.each([false, true])(
     'rejects arbitrary verification models (saved=%s) before upstream work',
     async (saved) => {
@@ -247,6 +301,7 @@ describe('operator model authorization', () => {
     },
   );
 });
+<<<<<<< HEAD
 
 describe('Pi classroom tool requirement through real model resolution', () => {
   const noTools = 'qwen/qwen3.5-flash';
@@ -611,3 +666,5 @@ describe('Pi Google native migration through real model resolution', () => {
     }
   });
 });
+=======
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))

@@ -13,8 +13,12 @@ import {
 import { resolveExtractionServices } from '@/lib/server/material-extraction/services';
 import {
   extractClaimedSessionMaterial,
+<<<<<<< HEAD
   planSourceExtraction,
   runSourceExtraction,
+=======
+  extractMaterialSource,
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
 } from '@/lib/server/material-extraction/extract';
 import { runNextMaterialExtraction } from '@/lib/server/material-extraction/runner';
 import { runClaimedOwnerMaterialExtraction } from '@/lib/server/materials/extraction';
@@ -91,8 +95,14 @@ it('stale ASR assignment leaves documents, PDF and agent URL fetch usable', asyn
   expect(services.asr).toBeUndefined();
   expect(services.asrError).toBeInstanceOf(ModelAuthorizationError);
   for (const mime of ['application/pdf', 'text/plain']) {
+<<<<<<< HEAD
     const result = await runSourceExtraction(
       await planSourceExtraction({ bytes: Buffer.from('document'), mime }, null, {
+=======
+    const result = await extractMaterialSource(
+      { bytes: Buffer.from('document'), mime },
+      {
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
         services,
         providers: () => [
           {
@@ -117,8 +127,12 @@ it('stale ASR assignment leaves documents, PDF and agent URL fetch usable', asyn
           },
         ],
         mediaProviders: () => [],
+<<<<<<< HEAD
       }),
       null,
+=======
+      },
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
     );
     expect(result.text).toBe('Extracted document');
   }
@@ -193,12 +207,18 @@ it('owner worker settles ASR authorization with 403 before host classification',
       },
       services: (owner) => resolveExtractionServices(owner, { forward: false }),
       analyze: async (input) => {
+<<<<<<< HEAD
         await runSourceExtraction(
           await planSourceExtraction({ bytes: Buffer.from('audio'), mime: 'audio/wav' }, null, {
             services: input.services,
             mediaProviders: () => [unavailableMedia],
           }),
           null,
+=======
+        await extractMaterialSource(
+          { bytes: Buffer.from('audio'), mime: 'audio/wav' },
+          { services: input.services, mediaProviders: () => [unavailableMedia] },
+>>>>>>> 3f418a3 (fix(security): enforce model authorization for server-managed providers (#1879))
         );
         throw Error('must fail ASR');
       },
