@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       return apiError('MISSING_API_KEY', 400, 'No API key configured');
     }
 
-    const model = resolveImageModel(providerId, clientModel);
+    const model = resolveImageModel(providerId, clientModel) ?? provider?.models?.[0]?.id;
     // Workflow-based providers (e.g. comfyui-image) have no model catalog and
     // need no model; everyone else must resolve one.
     if (!model && provider?.models && provider.models.length > 0) {
