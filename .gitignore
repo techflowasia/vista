@@ -99,3 +99,6 @@ e2e/__screenshots-619/
 /vista-postgres/
 /vista-data/
 /.runtime/
+
+# Temporary render-service sources extracted by the mixed-pool regression test
+render-service/.owner-bound-parent-*/
