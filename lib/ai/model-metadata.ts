@@ -469,7 +469,8 @@ const THINKING_CAPABILITIES: Record<string, ThinkingCapability> = {
     ['low', 'medium', 'high'],
     'medium',
   ),
-  [getModelMetadataKey('openrouter', 'google/gemini-2.5-flash-preview-05-06')]: fixedThinkingCapability,
+  [getModelMetadataKey('openrouter', 'google/gemini-2.5-flash-preview-05-06')]:
+    fixedThinkingCapability,
   [getModelMetadataKey('openrouter', 'openai/gpt-5')]: effortCapability(
     'openrouter',
     ['low', 'medium', 'high'],
