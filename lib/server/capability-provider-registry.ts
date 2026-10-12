@@ -11,9 +11,11 @@ export function applyTTSProviderConfig(
 ): Record<string, ServerProviderEntry> {
   const entry = tts['openrouter-tts'];
   if (entry && process.env.TTS_OPENROUTER_ENABLED?.toLowerCase() === 'true') {
-    entry.apiKey ||= process.env.OPENROUTER_API_KEY || '';
-    entry.baseUrl ||= process.env.OPENROUTER_BASE_URL;
-    const models = process.env.OPENROUTER_MODELS?.split(',')
+    entry.apiKey ||= process.env.TTS_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || '';
+    entry.baseUrl ||= process.env.TTS_OPENROUTER_BASE_URL || process.env.OPENROUTER_BASE_URL;
+    const modelsStr = process.env.TTS_OPENROUTER_MODELS || process.env.OPENROUTER_MODELS;
+    const models = modelsStr
+      ?.split(',')
       .map((model) => model.trim())
       .filter(Boolean);
     entry.models ||= models && models.length > 0 ? models : undefined;

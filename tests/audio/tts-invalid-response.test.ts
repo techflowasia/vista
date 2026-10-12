@@ -80,6 +80,37 @@ describe('TTS Provider Response Validation (#1395)', () => {
     expect(Buffer.from(result.audio).subarray(44)).toEqual(Buffer.from(pcm));
   });
 
+  it('calls OpenRouter /audio/speech for hexgrad/kokoro-82m', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'audio/mpeg' },
+      arrayBuffer: async () => new Uint8Array([0xff, 0xfb, 0x90, 0x00]).buffer,
+    });
+
+    const result = await generateTTS(
+      {
+        providerId: 'openrouter-tts',
+        modelId: 'hexgrad/kokoro-82m',
+        apiKey: 'sk-test',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        voice: 'af_heart',
+      },
+      'Hello world',
+    );
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://openrouter.ai/api/v1/audio/speech');
+    expect(JSON.parse(String(init.body))).toEqual({
+      model: 'hexgrad/kokoro-82m',
+      input: 'Hello world',
+      voice: 'af_heart',
+      speed: 1.0,
+      response_format: 'mp3',
+    });
+    expect(result.format).toBe('mp3');
+  });
+
   it('rejects OpenRouter streams with no audio chunks', async () => {
     const stream = new ReadableStream({
       start(controller) {
