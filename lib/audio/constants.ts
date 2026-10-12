@@ -251,12 +251,23 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     icon: '/logos/openrouter.svg',
     models: [
+      { id: 'google/gemini-3.8-flash-lite-tts', name: 'Gemini 3.8 Flash Lite TTS' },
       { id: 'openai/gpt-audio-mini', name: 'GPT Audio Mini' },
       { id: 'openai/gpt-audio', name: 'GPT Audio' },
       { id: 'hexgrad/kokoro-82m', name: 'Kokoro 82M' },
     ],
-    defaultModelId: 'openai/gpt-audio-mini',
+    defaultModelId: 'google/gemini-3.8-flash-lite-tts',
     voices: [
+      // Gemini voices
+      { id: 'Kore', name: 'Kore (Gemini)', language: 'th-TH', gender: 'female', description: 'Firm' },
+      { id: 'Puck', name: 'Puck (Gemini)', language: 'th-TH', gender: 'male', description: 'Upbeat' },
+      { id: 'Zephyr', name: 'Zephyr (Gemini)', language: 'th-TH', gender: 'female', description: 'Bright' },
+      { id: 'Charon', name: 'Charon (Gemini)', language: 'th-TH', gender: 'male', description: 'Informative' },
+      { id: 'Fenrir', name: 'Fenrir (Gemini)', language: 'th-TH', gender: 'male', description: 'Excitable' },
+      { id: 'Leda', name: 'Leda (Gemini)', language: 'th-TH', gender: 'female', description: 'Youthful' },
+      { id: 'Orus', name: 'Orus (Gemini)', language: 'th-TH', gender: 'male', description: 'Firm' },
+      { id: 'Aoede', name: 'Aoede (Gemini)', language: 'th-TH', gender: 'female', description: 'Breezy' },
+      // OpenAI voices
       { id: 'alloy', name: 'Alloy', language: 'en', gender: 'neutral' },
       { id: 'echo', name: 'Echo', language: 'en', gender: 'male' },
       { id: 'fable', name: 'Fable', language: 'en', gender: 'neutral' },
@@ -1036,6 +1047,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     icon: '/logos/gemini.svg',
     models: [
+      { id: 'gemini-3.8-flash-lite-tts', name: 'Gemini 3.8 Flash Lite TTS' },
       { id: 'gemini-3.1-flash-tts-preview', name: 'Gemini 3.1 Flash TTS Preview' },
       { id: 'gemini-2.5-flash-preview-tts', name: 'Gemini 2.5 Flash Preview TTS' },
       { id: 'gemini-2.5-pro-preview-tts', name: 'Gemini 2.5 Pro Preview TTS' },
@@ -1585,7 +1597,7 @@ export const ASR_PROVIDERS: Record<BuiltInASRProviderId, ASRProviderConfig> = {
  */
 export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
   'openai-tts': 'alloy',
-  'openrouter-tts': 'alloy',
+  'openrouter-tts': 'Kore',
   'azure-tts': 'zh-CN-XiaoxiaoNeural',
   'glm-tts': 'tongtong',
   'qwen-tts': 'Cherry',
@@ -1600,7 +1612,7 @@ export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
 
 export const DEFAULT_TTS_MODELS: Record<BuiltInTTSProviderId, string> = {
   'openai-tts': 'gpt-4o-mini-tts',
-  'openrouter-tts': 'openai/gpt-audio-mini',
+  'openrouter-tts': 'google/gemini-3.8-flash-lite-tts',
   'azure-tts': '',
   'glm-tts': 'glm-tts',
   'qwen-tts': 'qwen3-tts-flash',
