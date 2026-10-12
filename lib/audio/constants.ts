@@ -253,6 +253,7 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     models: [
       { id: 'openai/gpt-audio-mini', name: 'GPT Audio Mini' },
       { id: 'openai/gpt-audio', name: 'GPT Audio' },
+      { id: 'hexgrad/kokoro-82m', name: 'Kokoro 82M' },
     ],
     defaultModelId: 'openai/gpt-audio-mini',
     voices: [
@@ -262,8 +263,28 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
       { id: 'onyx', name: 'Onyx', language: 'en', gender: 'male' },
       { id: 'nova', name: 'Nova', language: 'en', gender: 'female' },
       { id: 'shimmer', name: 'Shimmer', language: 'en', gender: 'female' },
+      // Kokoro voices
+      { id: 'af_heart', name: 'Heart (Kokoro)', language: 'en-US', gender: 'female' },
+      { id: 'af_alloy', name: 'Alloy (Kokoro)', language: 'en-US', gender: 'female' },
+      { id: 'af_bella', name: 'Bella (Kokoro)', language: 'en-US', gender: 'female' },
+      { id: 'af_nova', name: 'Nova (Kokoro)', language: 'en-US', gender: 'female' },
+      { id: 'af_sky', name: 'Sky (Kokoro)', language: 'en-US', gender: 'female' },
+      { id: 'am_adam', name: 'Adam (Kokoro)', language: 'en-US', gender: 'male' },
+      { id: 'am_echo', name: 'Echo (Kokoro)', language: 'en-US', gender: 'male' },
+      { id: 'am_eric', name: 'Eric (Kokoro)', language: 'en-US', gender: 'male' },
+      { id: 'am_michael', name: 'Michael (Kokoro)', language: 'en-US', gender: 'male' },
+      { id: 'bf_alice', name: 'Alice (Kokoro UK)', language: 'en-GB', gender: 'female' },
+      { id: 'bf_emma', name: 'Emma (Kokoro UK)', language: 'en-GB', gender: 'female' },
+      { id: 'bm_george', name: 'George (Kokoro UK)', language: 'en-GB', gender: 'male' },
+      { id: 'bm_lewis', name: 'Lewis (Kokoro UK)', language: 'en-GB', gender: 'male' },
+      { id: 'zf_xiaobei', name: '晓贝 (Kokoro CN)', language: 'zh-CN', gender: 'female' },
+      { id: 'zf_xiaoni', name: '晓妮 (Kokoro CN)', language: 'zh-CN', gender: 'female' },
+      { id: 'zm_yunjian', name: '云健 (Kokoro CN)', language: 'zh-CN', gender: 'male' },
+      { id: 'zm_yunxi', name: '云希 (Kokoro CN)', language: 'zh-CN', gender: 'male' },
+      { id: 'jf_alpha', name: 'Alpha (Kokoro JA)', language: 'ja-JP', gender: 'female' },
+      { id: 'jm_kumo', name: 'Kumo (Kokoro JA)', language: 'ja-JP', gender: 'male' },
     ],
-    supportedFormats: ['wav'],
+    supportedFormats: ['wav', 'mp3'],
   },
 
   'azure-tts': {
