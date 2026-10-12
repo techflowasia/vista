@@ -111,6 +111,39 @@ describe('TTS Provider Response Validation (#1395)', () => {
     expect(result.format).toBe('mp3');
   });
 
+  it('calls OpenRouter /audio/speech for google/gemini-3.8-flash-lite-tts and wraps PCM as wav', async () => {
+    const pcm = new Uint8Array([0x00, 0x00, 0x10, 0x00]);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => (name === 'content-type' ? 'audio/pcm;rate=24000;channels=1' : null) },
+      arrayBuffer: async () => pcm.buffer,
+    });
+
+    const result = await generateTTS(
+      {
+        providerId: 'openrouter-tts',
+        modelId: 'google/gemini-3.8-flash-lite-tts',
+        apiKey: 'sk-test',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        voice: 'Kore',
+      },
+      'สวัสดีครับ',
+    );
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://openrouter.ai/api/v1/audio/speech');
+    expect(JSON.parse(String(init.body))).toEqual({
+      model: 'google/gemini-3.8-flash-lite-tts',
+      input: 'สวัสดีครับ',
+      voice: 'Kore',
+      speed: 1.0,
+    });
+    expect(result.format).toBe('wav');
+    expect(Buffer.from(result.audio).subarray(0, 4).toString()).toBe('RIFF');
+    expect(Buffer.from(result.audio).subarray(44)).toEqual(Buffer.from(pcm));
+  });
+
   it('rejects OpenRouter streams with no audio chunks', async () => {
     const stream = new ReadableStream({
       start(controller) {
@@ -129,6 +162,7 @@ describe('TTS Provider Response Validation (#1395)', () => {
       generateTTS(
         {
           providerId: 'openrouter-tts',
+          modelId: 'openai/gpt-audio-mini',
           apiKey: 'sk-test',
           voice: 'alloy',
         },
