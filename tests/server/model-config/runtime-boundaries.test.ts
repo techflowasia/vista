@@ -130,6 +130,67 @@ describe('workspaceLayer', () => {
   });
 });
 
+describe('workspace model default precedence', () => {
+  beforeEach(() => {
+    runtime.setDeploymentConfigForTests({
+      layer: {
+        source: 'deployment',
+        config: {
+          providers: {
+            openai: {
+              preset: 'openai',
+              apiKey: 'test-deployment-key',
+              models: ['mittr-1-0-max', 'gpt-5.6-mini'],
+            },
+          },
+          slots: { llm: 'openai:mittr-1-0-max' },
+        },
+      },
+      legacy: false,
+      notices: [],
+    });
+  });
+
+  it.each(['llm', 'course.outline', 'agent'] as const)(
+    'uses the deployment default for %s when the new workspace has no saved settings',
+    async (slot) => {
+      expect(await runtime.lookupSlot(slot, 'user:new')).toMatchObject({
+        status: 'assigned',
+        resolvedAt: 'llm',
+        source: 'default',
+        locked: false,
+        providerId: 'openai',
+        providerSource: 'deployment',
+        modelId: 'mittr-1-0-max',
+      });
+      expect(mocks.stored.has('user:new')).toBe(false);
+    },
+  );
+
+  it.each(['llm', 'course.outline', 'agent'] as const)(
+    'retains the existing workspace choice for %s instead of the deployment default',
+    async (slot) => {
+      const saved = {
+        config: { slots: { llm: 'openai:gpt-5.6-mini' } },
+        revision: 1,
+        unreadableSecrets: [],
+      };
+      mocks.stored.set('user:alice', structuredClone(saved));
+
+      expect(await runtime.lookupSlot(slot, 'user:alice')).toMatchObject({
+        status: 'assigned',
+        resolvedAt: 'llm',
+        source: 'workspace',
+        locked: false,
+        providerId: 'openai',
+        providerSource: 'deployment',
+        modelId: 'gpt-5.6-mini',
+      });
+      expect(mocks.stored.get('user:alice')).toEqual(saved);
+    },
+  );
+});
+
 describe('deploymentConfig', () => {
   it('loads once per process', () => {
     runtime.deploymentConfig();
