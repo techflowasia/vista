@@ -1,4 +1,14 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
+import tls from 'node:tls';
+import yaml from 'js-yaml';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { StoredWorkspaceConfig } from '@/lib/server/model-config/settings';
 
 import type { ModelConfigLayer } from '@/lib/server/model-config/resolve-slot';
 import {
@@ -371,6 +381,641 @@ describe('modelSettingsView', () => {
       set: true,
       unreadable: true,
     });
+  });
+});
+
+describe('environment configuration through runtime and serialized model settings', () => {
+  let dir: string;
+  let runtime: typeof import('@/lib/server/model-config/runtime');
+  let settings: typeof import('@/lib/server/model-config/settings');
+  const fetch = vi.fn(() => {
+    throw new Error('Unexpected upstream request');
+  });
+  const chatSlots = ['llm', 'course.outline', 'course.content', 'course.actions'] as const;
+  const chatProviders = [
+    { preset: 'openai', model: 'gpt-5.6', prefixes: ['OPENAI'] },
+    { preset: 'azure', model: 'test-gpt-deployment', prefixes: ['AZURE_OPENAI'] },
+    { preset: 'atlascloud', model: 'deepseek-ai/deepseek-v4-pro', prefixes: ['ATLASCLOUD'] },
+    { preset: 'anthropic', model: 'claude-sonnet-4-6', prefixes: ['ANTHROPIC'] },
+    { preset: 'bedrock', model: 'us.anthropic.claude-sonnet-4-6', prefixes: ['BEDROCK'] },
+    { preset: 'google', model: 'gemini-3.5-flash', prefixes: ['GOOGLE'] },
+    { preset: 'deepseek', model: 'deepseek-v4-pro', prefixes: ['DEEPSEEK'] },
+    { preset: 'qwen', model: 'qwen3.7-plus', prefixes: ['QWEN'] },
+    { preset: 'kimi', model: 'kimi-k2.7-code', prefixes: ['KIMI'] },
+    { preset: 'minimax', model: 'MiniMax-M3', prefixes: ['MINIMAX'] },
+    { preset: 'glm', model: 'glm-5.2', prefixes: ['GLM'] },
+    { preset: 'siliconflow', model: 'deepseek-ai/DeepSeek-V3.2', prefixes: ['SILICONFLOW'] },
+    { preset: 'doubao', model: 'doubao-seed-2-1-pro-260628', prefixes: ['DOUBAO'] },
+    { preset: 'openrouter', model: 'deepseek/deepseek-v4-pro', prefixes: ['OPENROUTER'] },
+    { preset: 'grok', model: 'grok-4.6', prefixes: ['GROK'] },
+    { preset: 'tencent-hunyuan', model: 'hy3-preview', prefixes: ['TENCENT', 'TENCENT_HUNYUAN'] },
+    { preset: 'xiaomi', model: 'mimo-v2.6-pro', prefixes: ['XIAOMI', 'MIMO'] },
+    { preset: 'tokendance', model: 'cogevol-base', prefixes: ['TOKENDANCE'] },
+    { preset: 'ollama', model: 'llama3.3', prefixes: ['OLLAMA'] },
+    { preset: 'lemonade', model: 'Gemma-4-26B-A4B-it-GGUF', prefixes: ['LEMONADE'] },
+    { preset: 'openai-compatible', model: 'gpt-5.4-mini', prefixes: [] },
+    { preset: 'volcengine-ark', model: 'doubao-seed-2.1-turbo', prefixes: [] },
+    { preset: 'kimi-coding-plan', model: 'kimi-for-coding', prefixes: [] },
+  ];
+  const upstream = vi.fn(() => {
+    throw new Error('Unexpected Node upstream connection');
+  });
+  const workspace: StoredWorkspaceConfig = {
+    config: {
+      providers: { mine: { preset: 'openai', apiKey: 'test-workspace-key-9876' } },
+      slots: { llm: 'mine:gpt-5.6' },
+    },
+    revision: 7,
+    unreadableSecrets: [],
+  };
+
+  beforeEach(async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openmaic-settings-env-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    for (const name of Object.keys(process.env)) {
+      if (
+        /(?:_API_KEY|_BASE_URL|_MODELS|_ENABLED|_PROXY)$/.test(name) ||
+        /^(?:AWS_|BEDROCK_|ALIDOCMIND_)/.test(name) ||
+        [
+          'OPENMAIC_CONFIG',
+          'DEFAULT_MODEL',
+          'DEFAULT_IMAGE_PROVIDER',
+          'MODEL_ROUTES',
+          'MODEL_FALLBACK',
+          'DATABASE_URL',
+        ].includes(name)
+      ) {
+        vi.stubEnv(name, '');
+      }
+    }
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-key-1234');
+    vi.stubEnv('ANTHROPIC_MODELS', 'claude-sonnet-4-6');
+    vi.stubEnv('DEFAULT_MODEL', 'anthropic:claude-sonnet-4-6');
+    fetch.mockClear();
+    upstream.mockClear();
+    vi.spyOn(http, 'request').mockImplementation(upstream);
+    vi.spyOn(http, 'get').mockImplementation(upstream);
+    vi.spyOn(https, 'request').mockImplementation(upstream);
+    vi.spyOn(https, 'get').mockImplementation(upstream);
+    vi.spyOn(net, 'connect').mockImplementation(upstream);
+    vi.spyOn(net, 'createConnection').mockImplementation(upstream);
+    vi.spyOn(tls, 'connect').mockImplementation(upstream);
+    vi.stubGlobal('fetch', fetch);
+    vi.resetModules();
+    runtime = await import('@/lib/server/model-config/runtime');
+    runtime.setDeploymentConfigForTests();
+    settings = await import('@/lib/server/model-config/settings');
+  });
+
+  afterEach(() => {
+    try {
+      expect(fetch).not.toHaveBeenCalled();
+      expect(upstream).not.toHaveBeenCalled();
+    } finally {
+      runtime?.setDeploymentConfigForTests();
+      runtime?.setWorkspaceLayerLoaderForTests();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function serializedView(stored: StoredWorkspaceConfig | null) {
+    const json = JSON.stringify(settings.modelSettingsView(stored));
+    expect(json).not.toContain('test-anthropic-key-1234');
+    expect(json).not.toContain('test-workspace-key-9876');
+    expect(json).not.toContain('${ANTHROPIC_API_KEY}');
+    return JSON.parse(json) as ReturnType<typeof settings.modelSettingsView>;
+  }
+
+  async function expectChat(
+    stored: StoredWorkspaceConfig | null,
+    target: { providerId: string; modelId: string; source: string; providerSource: string },
+    locked = false,
+  ) {
+    runtime.setWorkspaceLayerLoaderForTests(async (ownerId) => {
+      expect(ownerId).toBe('test-owner');
+      return stored ? { source: 'workspace', config: stored.config } : null;
+    });
+    const view = serializedView(stored);
+    for (const slot of chatSlots) {
+      expect(view.slots.find((entry) => entry.slot === slot)).toMatchObject({
+        locked,
+        effective: { status: 'assigned', resolvedAt: 'llm', ...target },
+      });
+      await expect(runtime.lookupSlot(slot, stored ? 'test-owner' : null)).resolves.toMatchObject({
+        status: 'assigned',
+        resolvedAt: 'llm',
+        locked,
+        ...target,
+      });
+      expect(view.slots.find((entry) => entry.slot === slot)!.effective).not.toHaveProperty(
+        'fallback',
+      );
+    }
+    return view;
+  }
+
+  function writeYaml(locked: boolean) {
+    fs.writeFileSync(
+      path.join(dir, 'study.yml'),
+      `providers:
+  study:
+    preset: anthropic
+    apiKey: \${ANTHROPIC_API_KEY}
+    models: [claude-sonnet-4-6]
+slots:
+  llm: study:claude-sonnet-4-6
+  tts: null
+${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
+    );
+    vi.stubEnv('OPENMAIC_CONFIG', './study.yml');
+    vi.stubEnv('DEFAULT_MODEL', 'anthropic:claude-opus-4-6');
+  }
+
+  it('covers every chat preset, registry provider and legacy env prefix', async () => {
+    const { PROVIDER_PRESETS, presetModels } = await import('@/lib/config/provider-presets');
+    const { PROVIDERS } = await import('@/lib/ai/providers');
+    const { LLM_ENV_MAP } = await import('@/lib/server/provider-config');
+    expect(new Set(chatProviders.map(({ preset }) => preset))).toEqual(
+      new Set(PROVIDER_PRESETS.filter((preset) => preset.capabilities.chat).map(({ id }) => id)),
+    );
+    expect(
+      new Set(chatProviders.filter(({ prefixes }) => prefixes.length).map(({ preset }) => preset)),
+    ).toEqual(new Set(Object.keys(PROVIDERS)));
+    expect(
+      Object.fromEntries(
+        chatProviders.flatMap(({ preset, prefixes }) => prefixes.map((prefix) => [prefix, preset])),
+      ),
+    ).toEqual(LLM_ENV_MAP);
+    for (const { preset, model } of chatProviders) {
+      if (['azure', 'openai-compatible'].includes(preset)) continue;
+      expect(
+        presetModels(PROVIDER_PRESETS.find(({ id }) => id === preset)!, 'chat').map(({ id }) => id),
+      ).toContain(model);
+    }
+  });
+
+  function configureChat(preset: string, model: string, prefix?: string, locked = false) {
+    vi.stubEnv('ANTHROPIC_API_KEY', '');
+    vi.stubEnv('ANTHROPIC_MODELS', '');
+    vi.stubEnv('TEST_CHAT_API_KEY', 'test-matrix-secret-1234');
+    vi.stubEnv('AWS_ACCESS_KEY_ID', 'test-aws-access-id');
+    vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'test-aws-secret-value');
+    vi.stubEnv('AWS_SESSION_TOKEN', 'test-aws-session-value');
+    vi.stubEnv('AWS_EC2_METADATA_DISABLED', 'true');
+    vi.stubEnv('BEDROCK_REGION', preset === 'bedrock' ? 'us-east-1' : '');
+    const keyless = keylessPreset(preset);
+    const baseUrl =
+      preset === 'azure'
+        ? 'https://test-resource.openai.azure.com/openai'
+        : preset === 'ollama'
+          ? 'http://127.0.0.1:11434/v1'
+          : preset === 'lemonade'
+            ? 'http://127.0.0.1:13305/v1'
+            : preset === 'openai-compatible'
+              ? 'https://gateway.example.invalid/v1'
+              : undefined;
+    if (prefix) {
+      vi.stubEnv(`${prefix}_API_KEY`, keyless ? '' : 'test-matrix-secret-1234');
+      vi.stubEnv(`${prefix}_MODELS`, ` ${model}, , `);
+      if (baseUrl) vi.stubEnv(`${prefix}_BASE_URL`, baseUrl);
+      vi.stubEnv('DEFAULT_MODEL', `${preset}:${model}`);
+      return preset;
+    }
+    const id = 'study';
+    fs.writeFileSync(
+      path.join(dir, 'matrix.yml'),
+      yaml.dump({
+        providers: {
+          [id]: {
+            preset,
+            ...(!keyless ? { apiKey: '${TEST_CHAT_API_KEY}' } : {}),
+            ...(baseUrl ? { baseUrl } : {}),
+            models: [model],
+          },
+        },
+        slots: { llm: `${id}:${model}` },
+        ...(locked ? { lock: ['llm'] } : {}),
+      }),
+    );
+    vi.stubEnv('OPENMAIC_CONFIG', './matrix.yml');
+    vi.stubEnv('DEFAULT_MODEL', 'openai:competing-legacy-model');
+    return id;
+  }
+
+  const chatCases = chatProviders.flatMap((provider) => [
+    ...provider.prefixes.flatMap((prefix) =>
+      ['default', 'workspace'].map((mode) => ({ ...provider, prefix, mode })),
+    ),
+    ...['default', 'workspace', 'locked'].map((mode) => ({ ...provider, prefix: undefined, mode })),
+  ]);
+
+  it.each(chatCases)(
+    '$preset via $prefix ($mode) resolves the exact chat provider and model',
+    async ({ preset, model, prefix, mode }) => {
+      const id = configureChat(preset, model, prefix, mode === 'locked');
+      const stored = mode === 'default' ? null : workspace;
+      const overridden = mode === 'workspace';
+      const view = await expectChat(
+        stored,
+        {
+          providerId: overridden ? 'mine' : id,
+          modelId: overridden ? 'gpt-5.6' : model,
+          source: overridden ? 'workspace' : mode === 'locked' ? 'locked' : 'default',
+          providerSource: overridden ? 'workspace' : 'deployment',
+        },
+        mode === 'locked',
+      );
+      expect(runtime.deploymentConfig().legacy).toBe(!!prefix);
+      expect(runtime.deploymentConfig().layer?.config.providers?.[id]).toMatchObject({
+        preset,
+        models: [model],
+        ...(!keylessPreset(preset) ? { apiKey: 'test-matrix-secret-1234' } : {}),
+      });
+      expect(view.providers.find((provider) => provider.id === id)).toMatchObject({
+        preset,
+        source: 'deployment',
+      });
+      expect(view.slots.find((slot) => slot.slot === 'llm')!.serverDefault).toBe(`${id}:${model}`);
+      const json = JSON.stringify(view);
+      for (const secret of [
+        'test-matrix-secret-1234',
+        'test-aws-access-id',
+        'test-aws-secret-value',
+        'test-aws-session-value',
+        '${TEST_CHAT_API_KEY}',
+        'gateway.example.invalid',
+        '127.0.0.1',
+      ]) {
+        expect(json).not.toContain(secret);
+      }
+      const target = await runtime.lookupSlot('llm', null);
+      expect(target).toMatchObject({ providerId: id, presetId: preset, modelId: model });
+      if (keylessPreset(preset)) expect(target).not.toHaveProperty('apiKey');
+    },
+  );
+
+  type MediaCapability = 'tts' | 'asr' | 'image' | 'video' | 'webSearch' | 'document';
+  type MediaProvider = {
+    preset: string;
+    capability: MediaCapability;
+    model: string | null;
+    prefix: string | null;
+  };
+  const mediaProviders: MediaProvider[] = (
+    [
+      [
+        'tts',
+        [
+          ['openai-tts', 'gpt-4o-mini-tts', 'TTS_OPENAI'],
+          ['openrouter-tts', 'google/gemini-3.8-flash-lite-tts', 'TTS_OPENROUTER'],
+          ['azure-tts', null, 'TTS_AZURE'],
+          ['glm-tts', 'glm-tts', 'TTS_GLM'],
+          ['qwen-tts', 'qwen3-tts-flash', 'TTS_QWEN'],
+          ['minimax-tts', 'speech-2.8-hd', 'TTS_MINIMAX'],
+          ['voxcpm-tts', 'voxcpm2', 'TTS_VOXCPM'],
+          ['doubao-tts', null, 'TTS_DOUBAO'],
+          ['elevenlabs-tts', 'eleven_multilingual_v2', 'TTS_ELEVENLABS'],
+          ['google-tts', 'gemini-3.1-flash-tts-preview', 'TTS_GOOGLE'],
+          ['browser-native-tts', null, null],
+          ['lemonade-tts', 'kokoro-v1', 'TTS_LEMONADE'],
+        ],
+      ],
+      [
+        'asr',
+        [
+          ['openai-whisper', 'gpt-4o-mini-transcribe', 'ASR_OPENAI'],
+          ['qwen-asr', 'qwen3-asr-flash', 'ASR_QWEN'],
+          ['azure-asr', null, 'ASR_AZURE'],
+          ['browser-native', null, null],
+          ['funasr-asr', 'sensevoice', 'ASR_FUNASR'],
+          ['lemonade-asr', 'Whisper-Base', 'ASR_LEMONADE'],
+        ],
+      ],
+      [
+        'image',
+        [
+          ['seedream', 'doubao-seedream-5-0-260128', 'IMAGE_SEEDREAM'],
+          ['openai-image', 'gpt-image-2', 'IMAGE_OPENAI'],
+          ['qwen-image', 'qwen-image-2.0-pro', 'IMAGE_QWEN_IMAGE'],
+          ['nano-banana', 'gemini-3.1-flash-image-preview', 'IMAGE_NANO_BANANA'],
+          ['minimax-image', 'image-01', 'IMAGE_MINIMAX'],
+          ['grok-image', 'grok-imagine-image', 'IMAGE_GROK'],
+          ['glm-image', 'cogview-3-flash', 'IMAGE_GLM'],
+          ['comfyui-image', null, null],
+          ['lemonade-image', 'Qwen-Image-GGUF', 'IMAGE_LEMONADE'],
+          ['openrouter-image', 'google/gemini-2.5-flash-image', 'IMAGE_OPENROUTER'],
+        ],
+      ],
+      [
+        'video',
+        [
+          ['seedance', 'doubao-seedance-2-0-260128', 'VIDEO_SEEDANCE'],
+          ['kling', 'kling-v2-6', 'VIDEO_KLING'],
+          ['veo', 'veo-3.1-fast-generate-preview', 'VIDEO_VEO'],
+          ['minimax-video', 'MiniMax-Hailuo-2.3', 'VIDEO_MINIMAX'],
+          ['grok-video', 'grok-imagine-video', 'VIDEO_GROK'],
+          ['happyhorse', 'happyhorse-1.0-t2v', 'VIDEO_HAPPYHORSE'],
+          ['openrouter-video', 'google/veo-3.1', 'VIDEO_OPENROUTER'],
+        ],
+      ],
+      [
+        'webSearch',
+        [
+          ['tavily', null, 'TAVILY'],
+          ['exa', null, 'EXA'],
+          ['bocha', null, 'BOCHA'],
+          ['brave', null, 'BRAVE'],
+          ['baidu', null, 'BAIDU'],
+          ['claude', 'claude-sonnet-5', 'WEB_SEARCH_CLAUDE'],
+          ['minimax-search', null, 'WEB_SEARCH_MINIMAX'],
+          ['doubao-search', null, 'WEB_SEARCH_DOUBAO'],
+          ['searxng', null, 'SEARXNG'],
+        ],
+      ],
+      [
+        'document',
+        [
+          ['unpdf', null, 'PDF_UNPDF'],
+          ['mineru', null, 'PDF_MINERU'],
+          ['mineru-cloud', null, 'PDF_MINERU_CLOUD'],
+          ['alidocmind', null, 'ALIDOCMIND'],
+        ],
+      ],
+    ] satisfies [MediaCapability, [string, string | null, string | null][]][]
+  ).flatMap(([capability, rows]) =>
+    rows.map(([preset, model, prefix]) => ({ preset, capability, model, prefix })),
+  );
+
+  it('covers exactly every nonchat capability of every media-only preset and its catalog models', async () => {
+    const { PROVIDER_PRESETS, presetModels } = await import('@/lib/config/provider-presets');
+    const { providerModelsSetting } = await import('@/lib/server/provider-config');
+    expect(
+      mediaProviders.map(({ preset, capability }) => `${preset}/${capability}`).sort(),
+    ).toEqual(
+      PROVIDER_PRESETS.filter((preset) => !preset.capabilities.chat)
+        .flatMap((preset) =>
+          Object.keys(preset.capabilities).map((capability) => `${preset.id}/${capability}`),
+        )
+        .sort(),
+    );
+    for (const { preset, capability, model, prefix } of mediaProviders) {
+      const entry = PROVIDER_PRESETS.find(({ id }) => id === preset)!;
+      const models = presetModels(entry, capability).map(({ id }) => id);
+      if (model === null) expect(models).toEqual([]);
+      else expect(models).toContain(model);
+      const registryId = entry.capabilities[capability]!.registryId;
+      const setting = providerModelsSetting(
+        capability === 'document' ? 'pdf' : capability,
+        registryId,
+      );
+      if (prefix && preset !== 'alidocmind')
+        expect(setting).toMatch(new RegExp(`^${prefix}_MODELS or `));
+      else expect(setting).toMatch(/^server-providers\.yml /);
+    }
+  });
+
+  const mediaCases = mediaProviders.flatMap((provider) => [
+    ...['default', 'provider-default', 'workspace', 'locked'].map((mode) => ({
+      ...provider,
+      mode,
+      legacy: false,
+    })),
+    ...(provider.prefix
+      ? ['default', 'workspace'].map((mode) => ({ ...provider, mode, legacy: true }))
+      : []),
+  ]);
+
+  it.each(mediaCases)(
+    '$preset/$capability via legacy=$legacy ($mode) resolves the exact media provider and model',
+    async ({ preset, capability, model, prefix, mode, legacy }) => {
+      const { getProviderPreset, registryRequiresApiKey } =
+        await import('@/lib/config/provider-presets');
+      const entry = getProviderPreset(preset)!;
+      const registryId = entry.capabilities[capability]!.registryId;
+      const needsKey = !entry.requiresCredentials && registryRequiresApiKey(capability, registryId);
+      const needsEndpoint =
+        entry.requiresBaseUrl || (!needsKey && !entry.requiresCredentials && !!prefix);
+      const endpoint = 'https://media.example.invalid/v1';
+      const apiKey = 'test-media-secret-4321';
+      const credentials = {
+        accessKeyId: 'test-media-access-id',
+        accessKeySecret: 'test-media-access-secret',
+      };
+      vi.stubEnv('AWS_EC2_METADATA_DISABLED', 'true');
+      vi.stubEnv('TEST_MEDIA_API_KEY', apiKey);
+      vi.stubEnv('TEST_MEDIA_BASE_URL', endpoint);
+      vi.stubEnv('TEST_MEDIA_ACCESS_KEY_ID', credentials.accessKeyId);
+      vi.stubEnv('TEST_MEDIA_ACCESS_KEY_SECRET', credentials.accessKeySecret);
+      const provider = {
+        preset,
+        ...(needsKey ? { apiKey } : {}),
+        ...(entry.requiresCredentials ? { credentials } : {}),
+        ...(needsEndpoint ? { baseUrl: endpoint } : {}),
+        ...(model && mode !== 'provider-default' ? { models: [model] } : {}),
+      };
+      const id = legacy ? preset : 'media';
+      const ref = (providerId: string) =>
+        providerId + (model && mode !== 'provider-default' ? `:${model}` : '');
+      if (legacy) {
+        if (needsKey) vi.stubEnv(`${prefix}_API_KEY`, apiKey);
+        if (needsEndpoint) vi.stubEnv(`${prefix}_BASE_URL`, endpoint);
+        if (model) vi.stubEnv(`${prefix}_MODELS`, ` ${model}, , `);
+        if (entry.requiresCredentials) {
+          vi.stubEnv('ALIDOCMIND_ACCESS_KEY_ID', credentials.accessKeyId);
+          vi.stubEnv('ALIDOCMIND_ACCESS_KEY_SECRET', credentials.accessKeySecret);
+        }
+      } else {
+        fs.writeFileSync(
+          path.join(dir, 'media.yml'),
+          yaml.dump({
+            providers: {
+              [id]: {
+                ...provider,
+                ...(needsKey ? { apiKey: '${TEST_MEDIA_API_KEY}' } : {}),
+                ...(needsEndpoint ? { baseUrl: '${TEST_MEDIA_BASE_URL}' } : {}),
+                ...(entry.requiresCredentials
+                  ? {
+                      credentials: {
+                        accessKeyId: '${TEST_MEDIA_ACCESS_KEY_ID}',
+                        accessKeySecret: '${TEST_MEDIA_ACCESS_KEY_SECRET}',
+                      },
+                    }
+                  : {}),
+              },
+            },
+            slots: { [capability]: ref(id) },
+            ...(mode === 'locked' ? { lock: [capability] } : {}),
+          }),
+        );
+        vi.stubEnv('OPENMAIC_CONFIG', './media.yml');
+      }
+      const stored: StoredWorkspaceConfig | null = ['workspace', 'locked'].includes(mode)
+        ? {
+            config: {
+              slots: { [capability]: ref('alternative') },
+              providers: { alternative: { ...provider, baseUrl: undefined } },
+            },
+            revision: 8,
+            unreadableSecrets: [],
+          }
+        : null;
+      runtime.setWorkspaceLayerLoaderForTests(async (ownerId) => {
+        expect(ownerId).toBe('test-owner');
+        return stored ? { source: 'workspace', config: stored.config } : null;
+      });
+      const view = serializedView(stored);
+      const slot = view.slots.find(({ slot }) => slot === capability)!;
+      const overridden = mode === 'workspace';
+      const target = {
+        status: 'assigned',
+        resolvedAt: capability,
+        providerId: overridden ? 'alternative' : id,
+        providerSource: overridden ? 'workspace' : 'deployment',
+        source: overridden ? 'workspace' : mode === 'locked' ? 'locked' : 'default',
+        presetId: preset,
+        registryId,
+        ...(model ? { modelId: model } : {}),
+      };
+      expect(slot).toMatchObject({
+        locked: mode === 'locked',
+        serverDefault: ref(id),
+        effective: target,
+      });
+      const resolved = await runtime.lookupSlot(capability, stored ? 'test-owner' : null);
+      expect(resolved).toMatchObject({ ...target, locked: mode === 'locked' });
+      if (model === null) {
+        expect(slot.effective).not.toHaveProperty('modelId');
+        expect(resolved).not.toHaveProperty('modelId');
+      }
+      expect(runtime.deploymentConfig().legacy).toBe(legacy);
+      expect(runtime.deploymentConfig().layer?.config.providers?.[id]).toEqual(provider);
+      expect(view.providers.find((provider) => provider.id === id)).toMatchObject({
+        preset,
+        source: 'deployment',
+      });
+      if (needsKey) expect(resolved).toMatchObject({ apiKey });
+      else expect(resolved).not.toHaveProperty('apiKey');
+      if (entry.requiresCredentials) expect(resolved).toMatchObject({ credentials });
+      for (const secret of [apiKey, ...Object.values(credentials), endpoint, '${TEST_MEDIA_']) {
+        expect(JSON.stringify(view)).not.toContain(secret);
+      }
+    },
+  );
+
+  function keylessPreset(preset: string) {
+    return ['ollama', 'lemonade', 'bedrock'].includes(preset);
+  }
+
+  it('loads the legacy Anthropic env default for chat and inherited course slots', async () => {
+    const view = await expectChat(null, {
+      providerId: 'anthropic',
+      modelId: 'claude-sonnet-4-6',
+      source: 'default',
+      providerSource: 'deployment',
+    });
+    expect(runtime.deploymentConfig()).toMatchObject({
+      legacy: true,
+      layer: {
+        config: {
+          providers: {
+            anthropic: {
+              preset: 'anthropic',
+              apiKey: 'test-anthropic-key-1234',
+              models: ['claude-sonnet-4-6'],
+            },
+          },
+          slots: { llm: 'anthropic:claude-sonnet-4-6' },
+        },
+      },
+    });
+    expect(view.slots.find((entry) => entry.slot === 'llm')!.serverDefault).toBe(
+      'anthropic:claude-sonnet-4-6',
+    );
+    expect(view.slots.find((entry) => entry.slot === 'tts')!.effective.status).toBe('unassigned');
+  });
+
+  it('lets an unlocked workspace provider and model beat the legacy env default', async () => {
+    const view = await expectChat(workspace, {
+      providerId: 'mine',
+      modelId: 'gpt-5.6',
+      source: 'workspace',
+      providerSource: 'workspace',
+    });
+    expect(runtime.deploymentConfig().legacy).toBe(true);
+    expect(view.slots.find((entry) => entry.slot === 'llm')).toMatchObject({
+      assignment: 'mine:gpt-5.6',
+      serverDefault: 'anthropic:claude-sonnet-4-6',
+    });
+  });
+
+  it('loads the locked study YAML with env interpolation instead of the competing legacy default', async () => {
+    writeYaml(true);
+    const competing: StoredWorkspaceConfig = {
+      ...workspace,
+      config: {
+        ...workspace.config,
+        slots: {
+          llm: 'mine:gpt-5.6',
+          'course.outline': 'study:claude-opus-4-6',
+          'course.content': null,
+          'course.actions': 'mine:gpt-5.6',
+          tts: 'mine:gpt-5.6',
+        },
+      },
+    };
+    const view = await expectChat(
+      competing,
+      {
+        providerId: 'study',
+        modelId: 'claude-sonnet-4-6',
+        source: 'locked',
+        providerSource: 'deployment',
+      },
+      true,
+    );
+    expect(runtime.deploymentConfig()).toMatchObject({
+      legacy: false,
+      layer: {
+        config: {
+          providers: { study: { preset: 'anthropic', apiKey: 'test-anthropic-key-1234' } },
+          slots: { llm: 'study:claude-sonnet-4-6', tts: null },
+          lock: ['llm', 'tts'],
+          allowUserKeys: false,
+        },
+      },
+    });
+    expect(view.allowUserKeys).toBe(false);
+    expect(view.providers.map((provider) => provider.id)).toEqual(['study']);
+    expect(view.presets).toEqual([]);
+    expect(view.slots.find((entry) => entry.slot === 'tts')).toMatchObject({
+      locked: true,
+      effective: { status: 'disabled', resolvedAt: 'tts', source: 'locked' },
+    });
+    await expect(runtime.lookupSlot('tts', 'test-owner')).resolves.toMatchObject({
+      status: 'disabled',
+      resolvedAt: 'tts',
+      source: 'locked',
+      locked: true,
+    });
+  });
+
+  it('lets a workspace override the same YAML default when it is not locked', async () => {
+    writeYaml(false);
+    const view = await expectChat(workspace, {
+      providerId: 'mine',
+      modelId: 'gpt-5.6',
+      source: 'workspace',
+      providerSource: 'workspace',
+    });
+    expect(runtime.deploymentConfig().legacy).toBe(false);
+    expect(view.allowUserKeys).toBe(true);
+    expect(view.slots.find((entry) => entry.slot === 'llm')!.serverDefault).toBe(
+      'study:claude-sonnet-4-6',
+    );
   });
 });
 
