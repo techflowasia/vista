@@ -92,6 +92,24 @@ test.describe('Classroom Interaction', () => {
     await expect(page.getByRole('heading', { name: '光反应' })).toBeVisible();
   });
 
+  test('opens a collapsed sidebar before selecting a scene', async ({ page }) => {
+    const classroom = new ClassroomPage(page);
+    await classroom.goto(stageId);
+    await classroom.waitForLoaded();
+
+    await expect(classroom.sidebarScenes.first()).toBeVisible();
+    await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
+    await expect(classroom.sidebarScenes.first()).toBeHidden();
+
+    await classroom.clickScene(1);
+    await expect(classroom.sidebarScenes.nth(1)).toBeVisible();
+    await expect(page.getByRole('heading', { name: '光反应' })).toBeVisible();
+
+    await classroom.clickScene(0);
+    await expect(classroom.sidebarScenes.first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: '基本概念' })).toBeVisible();
+  });
+
   test('caps and restores the non-presentation roundtable draft height', async ({ page }) => {
     const classroom = new ClassroomPage(page);
     await classroom.goto(stageId);
