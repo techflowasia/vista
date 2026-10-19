@@ -15,6 +15,107 @@ OpenMAIC has three configuration sources, and each has one job:
 
 Earlier releases configured models only through provider environment variables, `server-providers.yml`, `DEFAULT_MODEL` and `MODEL_ROUTES`. Those still work for now, with the exception of `MODEL_ROUTES`, and are deprecated; see [Migrating from the legacy configuration](#migrating-from-the-legacy-configuration).
 
+## Configuration flow and precedence
+
+Credentials answer **how to authenticate**; slot assignments answer **which provider
+and model to call**. Adding a key alone does not select a chat model, and changing a
+server default does not replace a workspace's saved choice.
+
+```text
+Shell / service manager / container environment
+  + Next.js .env* loading (existing process.env wins)
+  -> process.env
+  -> deployment configuration, loaded once per server process
+       openmaic.yml (or OPENMAIC_CONFIG), with ${VAR} references
+       OR, when absent: legacy provider variables + server-providers.yml
+                        + DEFAULT_MODEL / MODEL_FALLBACK
+  + current workspace's database settings (provider keys decrypted server-side)
+  -> apply allowUserKeys and deployment locks
+  -> resolve requested slot: workspace assignments, then server defaults
+       walk slot -> parent -> capability root within each eligible layer
+  -> resolve provider credentials / endpoint, capability and model authorization
+  -> chat, TTS, ASR, image, video, search or document adapter
+```
+
+### Environment loading is the first layer
+
+Next.js reads `.env*` files from the app root. For each variable, the first defined
+value wins, including an existing empty `process.env` value:
+
+| Priority | Source | Notes |
+| --- | --- | --- |
+| 1 (highest) | Existing `process.env` | Shell, service manager or container-injected values |
+| 2 | `.env.<mode>.local` | Includes `.env.test.local` in test mode |
+| 3 | `.env.local` | Skipped when `NODE_ENV=test` |
+| 4 | `.env.<mode>` | `development`, `production` or `test` |
+| 5 | `.env` | Shared defaults |
+
+With `NODE_ENV` unset, `next dev` uses `development`; `next build` and `next start`
+use `production`. The underlying `@next/env` loader chooses `test` when
+`NODE_ENV=test`, otherwise its caller's development flag (production by default).
+A standalone script does not automatically load these files just by reading
+`process.env`.
+
+Next.js expands `$VAR` and `${VAR}` references in `.env*` values; escape a literal
+dollar sign as `\$`. This happens before OpenMAIC substitutes `${VAR}` in
+`openmaic.yml` from the resulting environment. Those are separate loading steps,
+not two competing model-selection rules.
+
+OpenMAIC caches its deployment model configuration on first use for the life of
+that server process (startup validation loads it). Restart after editing provider
+environment values or YAML; development environment reloads are not a promise to
+invalidate that cache. Workspace model settings are read at resolution time and
+apply without restarting.
+
+### Deployment defaults, workspace choices and keys
+
+- With `openmaic.yml`, that file **replaces**, rather than merges with, legacy model
+  configuration. Provider environment variables only supply values explicitly
+  referenced by `${VAR}`; `DEFAULT_MODEL` does not override `slots.llm`.
+- Without it, legacy provider fields use non-empty environment overrides over
+  matching `server-providers.yml` fields, one field at a time (key, URL, models).
+  The result and legacy defaults are translated into deployment providers and
+  slots. See [Migration](#migrating-from-the-legacy-configuration) for exceptions,
+  including `MODEL_ROUTES` rejection and legacy provider disable switches.
+- A locked subtree uses deployment assignments only. Elsewhere, the workspace's
+  slot-to-root walk wins before the deployment's walk; `null` stops a walk as off.
+  See [Slots](#slots) and [Defaults and locks](#defaults-locks-and-the-model-settings).
+- Provider lookup is separate: a deployment provider wins over a workspace provider
+  with the **same provider id**, including its credentials and endpoint; keys are
+  not merged. With `allowUserKeys: false`, workspace-owned providers are not used.
+- Deployment keys come from configured provider fields; workspace keys are encrypted
+  in PostgreSQL and decrypted on the server. `OPENMAIC_SECRET_KEY` is the encryption
+  secret, **not a provider API key**. See [Secrets](#secrets-and-openmaic_secret_key).
+- Legacy `DEFAULT_MODEL` becomes the chat root `llm`, not `tts`. Server TTS needs its
+  own provider and `tts` assignment; a chat key or chat model selection does not
+  automatically configure speech. Presets must offer the requested capability, and
+  server-managed model choices must pass [model authorization](#model-authorization-for-server-managed-providers).
+
+### Docker adds an earlier environment layer
+
+In the repository's Compose file, `env_file` reads `docker-compose.defaults.env`
+first and `.env.local` second, so the latter overrides matching defaults. Explicit
+service `environment` entries override both (for example `RENDER_SERVICE_URL`).
+These become container `process.env` values and therefore outrank Next.js `.env*`
+loading; this is not Next.js directly reading the host's `.env.local`.
+
+Compose interpolation for ports and build args uses the shell or Compose's `.env`
+(or an explicit `--env-file`), not the service's `env_file` list. `NEXT_PUBLIC_*`
+flags must reach the build through build args and require rebuilding; runtime-only
+changes cannot update the built bundle. See [Feature flags](#feature-flags),
+[Deployment](./deployment.mdx#docker) and [Hosting](./hosting.mdx#docker-compose-as-a-personal-installation).
+
+### If DEFAULT_MODEL says mittr but a call uses OpenRouter
+
+Do not infer the cause from `.env.local` alone. Check the environment supplied to
+the running process, its mode and last restart, whether `OPENMAIC_CONFIG` or
+`openmaic.yml` replaces legacy defaults, and the current workspace's assignment for
+the actual slot and its ancestors. Also check the selected provider's endpoint,
+any configured chat fallback and the [deprecated request-field rules](#api-clients-and-deprecated-request-fields).
+`DEFAULT_MODEL` is only a legacy chat default; it does not prove which slot,
+provider or upstream handled a particular call. Check configuration sources and
+non-secret diagnostics without printing keys.
+
 ## Models and providers
 
 ### Concepts
