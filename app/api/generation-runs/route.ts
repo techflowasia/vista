@@ -34,50 +34,61 @@ import { generationRunConfig } from '@/lib/server/generation/run/config';
 import { startGenerationRun, startRefusal } from '@/lib/server/generation/run/start';
 import { listActiveGenerationRuns, runSnapshot } from '@/lib/server/generation/run/store';
 import { withRequestOwner } from '@/lib/server/identity/with-owner';
-import { createLogger } from '@/lib/logger';
-
-const log = createLogger('GenerationRuns API');
+import { randomBytes } from 'node:crypto';
+import {
+  generationRequestId,
+  inGenerationRun,
+  observeGeneration,
+} from '@/lib/server/generation/run/observability';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
-  return withRequestOwner(req, async (principal, responseHeaders) => {
-    const { ownerId } = principal;
-    const body = await readJsonBody(req, MAX_START_BODY_BYTES);
-    if (!body.ok) {
-      return ownerApiError('INVALID_REQUEST', body.status, body.message, responseHeaders);
-    }
-    const parsed = parseRunInput(body.value);
-    if (!parsed.ok) return ownerApiError('INVALID_REQUEST', 400, parsed.message, responseHeaders);
+  const requestId = `run-${randomBytes(12).toString('base64url')}`;
+  return inGenerationRun(requestId, () =>
+    withRequestOwner(req, async (principal, responseHeaders) => {
+      responseHeaders.set('X-Request-ID', requestId);
+      const { ownerId } = principal;
+      const body = await readJsonBody(req, MAX_START_BODY_BYTES);
+      if (!body.ok) {
+        return ownerApiError('INVALID_REQUEST', body.status, body.message, responseHeaders);
+      }
+      const parsed = parseRunInput(body.value);
+      if (!parsed.ok) return ownerApiError('INVALID_REQUEST', 400, parsed.message, responseHeaders);
 
-    try {
-      const run = await startGenerationRun(ownerId, parsed.value, {
-        principal,
-        request: req,
-        origin: 'generation-runs',
-      });
-      return withOwnerResponseHeaders(apiSuccess({ run: runSnapshot(run) }, 202), responseHeaders);
-    } catch (error) {
-      const refusal = startRefusal(error);
-      if (refusal) {
-        const response = ownerApiError(
-          refusal.code,
-          refusal.status,
-          refusal.message,
+      try {
+        const run = await startGenerationRun(ownerId, parsed.value, {
+          principal,
+          request: req,
+          origin: 'generation-runs',
+        });
+        responseHeaders.set('X-Request-ID', generationRequestId(run.id));
+        return withOwnerResponseHeaders(
+          apiSuccess({ run: runSnapshot(run) }, 202),
           responseHeaders,
         );
-        for (const [key, value] of refusal.headers ?? []) response.headers.append(key, value);
-        return response;
+      } catch (error) {
+        observeGeneration('failed', { error });
+        const refusal = startRefusal(error);
+        if (refusal) {
+          const response = ownerApiError(
+            refusal.code,
+            refusal.status,
+            refusal.message,
+            responseHeaders,
+          );
+          for (const [key, value] of refusal.headers ?? []) response.headers.append(key, value);
+          return response;
+        }
+        return ownerApiError(
+          'INTERNAL_ERROR',
+          500,
+          'Failed to start the generation run',
+          responseHeaders,
+        );
       }
-      log.error('Generation run creation failed:', error);
-      return ownerApiError(
-        'INTERNAL_ERROR',
-        500,
-        'Failed to start the generation run',
-        responseHeaders,
-      );
-    }
-  });
+    }),
+  );
 }
 
 export async function GET(req: NextRequest) {

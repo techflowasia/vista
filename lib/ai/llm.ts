@@ -12,7 +12,10 @@ import type {
   LanguageModelMiddleware,
   StreamTextResult,
 } from 'ai';
-import { createLogger } from '@/lib/logger';
+import {
+  generationScopedLogger,
+  observeGeneration,
+} from '@/lib/server/generation/run/observability';
 import { PROVIDERS } from './providers';
 import { thinkingContext } from './thinking-context';
 import { isEmptyLlmOutput, shouldFallbackFor, logFallbackFired } from '@/lib/server/llm-fallback';
@@ -34,7 +37,7 @@ import {
   pickThinkingEffort,
   pickThinkingLevel,
 } from '@/lib/ai/thinking-config';
-const log = createLogger('LLM');
+const log = generationScopedLogger('LLM');
 
 // Re-export for external use
 export type { ThinkingConfig } from '@/lib/types/provider';
@@ -478,10 +481,15 @@ export async function callLLM<T extends GenerateTextParams>(
   let triggerFallback = false;
   // The failure that fired the fallback (undefined for an empty output).
   let fallbackCause: unknown;
+  let attempts = 0;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    attempts = attempt;
     const round = await runRound(params, `attempt ${attempt}/${maxAttempts}`);
-    if (round.ok) return round.result;
+    if (round.ok) {
+      if (attempt > 1) observeGeneration('retry_recovered', { attempt });
+      return round.result;
+    }
     if (round.error !== undefined) {
       lastError = round.error;
       // A host failure no retry helps (lib/server/generation-run-hooks):
@@ -494,6 +502,7 @@ export async function callLLM<T extends GenerateTextParams>(
       const quotaRefused = isProviderQuotaRefusal(round.error);
       if (quotaRefused) lastResult = undefined;
       if (!quotaRefused && attempt < maxAttempts) {
+        observeGeneration('retry_scheduled', { attempt, error: round.error });
         log.warn(
           `[${source}] Call failed (attempt ${attempt}/${maxAttempts}), retrying...`,
           round.error,
@@ -511,6 +520,7 @@ export async function callLLM<T extends GenerateTextParams>(
       // non-empty result that fails a caller-supplied validator (that would
       // spend the fallback model's quota on "output quality is off").
       lastResult = round.result;
+      if (attempt < maxAttempts) observeGeneration('retry_scheduled', { attempt });
       // Content-filter refusals never reach the fallback decision — even when
       // the refusal came back with empty text (a SAFETY block looks exactly
       // like an empty output otherwise).
@@ -524,17 +534,23 @@ export async function callLLM<T extends GenerateTextParams>(
   if (triggerFallback) {
     if (fallback) {
       const primary = typeof params.model === 'string' ? params.model : getModelId(params);
+      observeGeneration('retry_scheduled', { attempt: attempts, error: fallbackCause });
       logFallbackFired(source, fallbackCause, primary || '?', fallback.modelString);
       // The fallback round is the LAST attempt: run it with no SDK-internal
       // retries on top (a 503 on both models must not cost 3+3 upstream
       // calls), and do not reuse the caller's abort signal — an
       // AbortSignal.timeout that already fired would make the fallback round
       // impossible to run.
+      attempts += 1;
       const round = await runRound(
         { ...params, model: fallback.model, maxRetries: 0, abortSignal: undefined } as T,
         'fallback',
       );
-      if (round.ok) return round.result;
+      if (round.ok) {
+        observeGeneration('retry_recovered', { attempt: attempts });
+        return round.result;
+      }
+      observeGeneration('retry_exhausted', { attempt: attempts, error: round.error });
       if (round.error !== undefined) {
         // Same rule as the primary attempts: a host failure or an exhausted
         // quota is what the caller gets, never the primary's empty result.

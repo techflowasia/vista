@@ -158,15 +158,12 @@ export function startGenerationRunner(
           const abort = new AbortController();
           const done = runClaimedGenerationRun(claim, services, abort, config.heartbeatIntervalMs)
             .then(async (outcome) => {
-              log.info(`run ${claim.run.id}: ${outcome}`);
               if (outcome === 'interrupted' && stopping) {
                 // A clean park: the next claim resumes from the last checkpoint.
                 await releaseGenerationRunLease(claim.lease).catch(() => undefined);
               }
             })
-            .catch((error) => {
-              log.error(`run ${claim.run.id} crashed`, error);
-            })
+            .catch(() => undefined)
             .finally(() => {
               running.delete(claim.run.id);
               if (!stopping) void scan();

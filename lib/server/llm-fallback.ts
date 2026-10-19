@@ -27,14 +27,14 @@ import type { LanguageModel } from 'ai';
 import { getModel, parseModelString } from '@/lib/ai/providers';
 import { resolveApiKey, resolveBaseUrl, resolveProxy } from '@/lib/server/provider-config';
 import { fetchWithRedirectValidation } from '@/lib/server/fetch-with-redirect-validation';
-import { createLogger } from '@/lib/logger';
+import { generationScopedLogger } from '@/lib/server/generation/run/observability';
 import { isUpstreamQuotaExhausted } from '@/lib/server/llm-error-response';
 import {
   isNonRetryableHostFailure,
   isProviderQuotaRefusal,
 } from '@/lib/server/generation-run-hooks/runtime';
 
-const log = createLogger('LLM Fallback');
+const log = generationScopedLogger('LLM Fallback');
 
 export interface FallbackResolution {
   /** The fallback language model, ready to hand to callLLM/streamLLM. */
