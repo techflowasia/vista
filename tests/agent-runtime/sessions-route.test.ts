@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  setDeploymentConfigForTests,
+  setWorkspaceLayerLoaderForTests,
+} from '@/lib/server/model-config/runtime';
+import type { ModelConfigFile } from '@/lib/server/model-config/openmaic-yml';
 import { NextRequest } from 'next/server';
 
 const mocks = vi.hoisted(() => ({
@@ -67,6 +72,18 @@ function post(body: unknown, headers?: HeadersInit) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.runtimeEnabled = true;
+  setDeploymentConfigForTests({
+    layer: {
+      source: 'deployment',
+      config: {
+        providers: { main: { preset: 'openai', apiKey: 'unit-test-key' } },
+        slots: { llm: 'main:gpt-4o-mini' },
+      },
+    },
+    legacy: false,
+    notices: [],
+  });
+  setWorkspaceLayerLoaderForTests(async () => null);
   mocks.resolveRequestOwnerId.mockImplementation(
     (_request: NextRequest, responseHeaders: Headers) => {
       responseHeaders.append('Set-Cookie', 'anonymous_id=test; Path=/; HttpOnly');
@@ -93,6 +110,85 @@ beforeEach(() => {
   mocks.postUserMessage.mockResolvedValue({ seq: 1, delivery: 'queued', requeued: true });
   mocks.softDeleteSession.mockResolvedValue(true);
   mocks.bindOwnerMaterialsToSession.mockResolvedValue([]);
+});
+
+afterEach(() => {
+  setDeploymentConfigForTests();
+  setWorkspaceLayerLoaderForTests();
+});
+
+describe('agent session model admission', () => {
+  it.each([
+    { prompt: 'Build a course' },
+    { prompt: 'Read this', materialIds: ['material-1'] },
+    {
+      existingCourse: true,
+      stageId: 'stage-1',
+      courseRefs: [{ kind: 'course', stageId: 'stage-2', title: 'Reference' }],
+    },
+  ])('refuses missing agent models before persisting work: %j', async (body) => {
+    setDeploymentConfigForTests({ layer: null, legacy: false, notices: [] });
+
+    const response = await post(body);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      errorCode: 'MISSING_MODEL',
+      error: expect.stringContaining('No model is configured for agent'),
+    });
+    expect(response.headers.get('set-cookie')).toContain('anonymous_id=test');
+    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(mocks.bindOwnerMaterialsToSession).not.toHaveBeenCalled();
+    expect(mocks.postUserMessage).not.toHaveBeenCalled();
+    expect(mocks.scheduleConversationTitle).not.toHaveBeenCalled();
+  });
+
+  it('refuses an explicitly disabled agent before persisting a session', async () => {
+    setWorkspaceLayerLoaderForTests(async () => ({
+      source: 'workspace',
+      config: { slots: { agent: null } },
+    }));
+
+    const response = await post({ prompt: 'Build a course' });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: 'MISSING_MODEL',
+      error: expect.stringContaining('agent capability is turned off'),
+    });
+    expect(mocks.createSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['agent', 'llm'] as const)(
+    'accepts a workspace BYOK model assigned to %s',
+    async (slot) => {
+      setDeploymentConfigForTests({ layer: null, legacy: false, notices: [] });
+      const loadWorkspace = vi.fn(async () => ({
+        source: 'workspace' as const,
+        config: {
+          providers: { own: { preset: 'openai', apiKey: 'unit-test-byok' } },
+          slots: { [slot]: 'own:gpt-4o-mini' },
+        } as ModelConfigFile,
+      }));
+      setWorkspaceLayerLoaderForTests(loadWorkspace);
+
+      expect((await post({ prompt: 'Build a course' })).status).toBe(202);
+      expect(loadWorkspace).toHaveBeenCalledWith('anon:test');
+      expect(mocks.createSession).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('still permits an idle existing-course session without a model', async () => {
+    setDeploymentConfigForTests({ layer: null, legacy: false, notices: [] });
+
+    expect((await post({ existingCourse: true, stageId: 'stage-1' })).status).toBe(202);
+    expect(mocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'succeeded' }),
+    );
+    expect(mocks.postUserMessage).not.toHaveBeenCalled();
+    expect(mocks.scheduleConversationTitle).not.toHaveBeenCalled();
+  });
 });
 
 describe('agent session collection route', () => {

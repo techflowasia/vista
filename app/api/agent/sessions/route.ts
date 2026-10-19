@@ -4,7 +4,12 @@
  * These handlers only use the durable session store. A separately running
  * worker claims queued sessions after the request has returned.
  */
-import { assertWorkspaceModelsAuthorized } from '@/lib/server/model-config/runtime';
+import {
+  assertWorkspaceModelsAuthorized,
+  lookupSlot,
+  SlotDisabledError,
+  SlotUnassignedError,
+} from '@/lib/server/model-config/runtime';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
@@ -146,6 +151,19 @@ export async function POST(req: NextRequest) {
      * prompt either way, so the model still sees what the user asked for.
      */
     const skillId = explicitSkillId ?? (await inferSkillIdFromPrompt(prompt, ownerId));
+    const hasOpeningContext = materialIds.length > 0 || decodedCourseRefs.refs.length > 0;
+    if (!existingCourse || hasOpeningContext) {
+      const resolution = await lookupSlot('agent', ownerId);
+      if (resolution.status !== 'assigned') {
+        const error =
+          resolution.status === 'disabled'
+            ? new SlotDisabledError('agent')
+            : new SlotUnassignedError('agent');
+        const response = apiError('MISSING_MODEL', 400, error.message);
+        responseHeaders.forEach((value, name) => response.headers.append(name, value));
+        return response;
+      }
+    }
 
     // Upstream classrooms do not carry an owner partition, so existing-course
     // sessions validate only the identifier format here. Full existence and
@@ -157,7 +175,6 @@ export async function POST(req: NextRequest) {
     if ((await store.readRetirement(ownerId)) !== null) {
       return ownerRetiredResponse(responseHeaders);
     }
-    const hasOpeningContext = materialIds.length > 0 || decodedCourseRefs.refs.length > 0;
     // A create racing a claim of this owner is written for the account, as if
     // it had committed just before the claim (the store forwards under the
     // owner's identity lock); a busy claim answers 503 OWNER_BUSY.

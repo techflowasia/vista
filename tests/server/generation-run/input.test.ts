@@ -13,6 +13,7 @@ import {
   parseConfirmOutline,
   parseOutlines,
   parseRunInput,
+  parseRetry,
   readJsonBody,
 } from '@/lib/server/generation/run/input';
 import { withRouteRetry } from '@/lib/server/generation/run/retry';
@@ -57,6 +58,23 @@ describe('run input', () => {
         outlineReview: 'auto',
         voice: { providerId: 'openai-tts', voiceId: 'alloy', speed: 1.25 },
       },
+    });
+  });
+
+  it('does not accept recovery controls from public start or retry input', () => {
+    const controls = {
+      recoveryModel: 'openai:mittr-1-0-max',
+      recoverySkipVoice: 'true',
+      hostAttributes: { recoveryModel: 'openai:mittr-1-0-max', recoverySkipVoice: 'true' },
+      workerId: 'local-recovery',
+      leaseGeneration: 100,
+    };
+    expect(parseRunInput({ requirement: 'Teach fractions', ...controls })).toEqual(
+      parseRunInput({ requirement: 'Teach fractions' }),
+    );
+    expect(parseRetry({ commandId: 'retry-local', ...controls })).toEqual({
+      ok: true,
+      value: { commandId: 'retry-local' },
     });
   });
 

@@ -7,11 +7,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   resolveModel: vi.fn(),
+  savedProviderTarget: vi.fn(),
+  languageModelFor: vi.fn(),
   synthesizeNarration: vi.fn(),
   storeGeneratedAsset: vi.fn(),
 }));
 
 vi.mock('@/lib/server/resolve-model', () => ({ resolveModel: mocks.resolveModel }));
+vi.mock('@/lib/server/model-config/llm', () => ({ languageModelFor: mocks.languageModelFor }));
+vi.mock('@/lib/server/model-config/runtime', async (original) => ({
+  ...(await original<typeof import('@/lib/server/model-config/runtime')>()),
+  savedProviderTarget: mocks.savedProviderTarget,
+}));
 vi.mock('@/lib/server/generation/steps/narration', () => ({
   synthesizeNarration: mocks.synthesizeNarration,
 }));
@@ -20,7 +27,10 @@ vi.mock('@/lib/server/store-generated-asset', () => ({
 }));
 
 import { StepRefusal } from '@/lib/server/generation/steps/context';
-import { defaultRunStepServices } from '@/lib/server/generation/run/services';
+import {
+  defaultRunStepServices,
+  recoveryRunStepServices,
+} from '@/lib/server/generation/run/services';
 import type { MediaConnection } from '@/lib/server/model-config/media';
 import type { SceneOutline } from '@/lib/types/generation';
 
@@ -29,6 +39,8 @@ const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as 
 describe('run step services', () => {
   beforeEach(() => {
     vi.stubEnv('DATABASE_URL', '');
+    mocks.savedProviderTarget.mockReset();
+    mocks.languageModelFor.mockReset();
     mocks.resolveModel.mockReset().mockResolvedValue({
       model: { id: 'test-model' },
       modelInfo: {},
@@ -93,6 +105,70 @@ describe('run step services', () => {
     );
     expect(id).toBe('ast_1');
     expect(mocks.storeGeneratedAsset).toHaveBeenCalledWith(expect.objectContaining({ mimeType }));
+  });
+
+  it('keeps ordinary runs on their existing services', () => {
+    expect(recoveryRunStepServices(defaultRunStepServices, null)).toBe(defaultRunStepServices);
+  });
+
+  it.each<Record<string, string>>([
+    {},
+    { recoveryModel: 'openai:mittr-1-0-max' },
+    { recoverySkipVoice: 'true' },
+    { recoveryModel: 'openai:mittr-1-0-max', recoverySkipVoice: 'false' },
+  ])('requires both trusted recovery attributes: %j', (attributes) => {
+    expect(recoveryRunStepServices(defaultRunStepServices, attributes)).toBe(
+      defaultRunStepServices,
+    );
+  });
+
+  it('does not fall back to slots when recovery model resolution is refused', async () => {
+    const refusal = new Error('Recovery model refused');
+    mocks.savedProviderTarget.mockRejectedValue(refusal);
+    const services = recoveryRunStepServices(defaultRunStepServices, {
+      recoveryModel: 'openai:mittr-1-0-max',
+      recoverySkipVoice: 'true',
+    });
+    await expect(
+      services.sceneContent('user:a', { outline: outline('video') }, { log }),
+    ).rejects.toBe(refusal);
+    expect(mocks.resolveModel).not.toHaveBeenCalled();
+    expect(mocks.languageModelFor).not.toHaveBeenCalled();
+  });
+
+  it('pins only recovery calls to the saved model without slot fallback', async () => {
+    mocks.savedProviderTarget.mockResolvedValue({ providerId: 'openai', modelId: 'mittr-1-0-max' });
+    mocks.languageModelFor.mockResolvedValue({ model: { id: 'mittr' }, modelInfo: {} });
+    const services = recoveryRunStepServices(defaultRunStepServices, {
+      recoveryModel: 'openai:mittr-1-0-max',
+      recoverySkipVoice: 'true',
+    });
+    await expect(
+      services.sceneContent('user:a', { outline: outline('video') }, { log }),
+    ).rejects.toBeDefined();
+    expect(mocks.savedProviderTarget).toHaveBeenCalledWith(
+      'openai:mittr-1-0-max',
+      'chat',
+      'user:a',
+    );
+    expect(mocks.resolveModel).not.toHaveBeenCalled();
+    await expect(
+      defaultRunStepServices.sceneContent('user:a', { outline: outline('video') }, { log }),
+    ).rejects.toBeDefined();
+    expect(mocks.resolveModel).toHaveBeenCalled();
+  });
+
+  it('skips narration and external media for scoped recovery', async () => {
+    const services = recoveryRunStepServices(defaultRunStepServices, {
+      recoveryModel: 'openai:mittr-1-0-max',
+      recoverySkipVoice: 'true',
+    });
+    expect(await services.narrationTarget('user:a')).toBeNull();
+    expect(await services.mediaConnections('user:a')).toEqual({
+      image: { status: 'off' },
+      video: { status: 'off' },
+    });
+    await expect(services.narrateClip('user:a', {} as never, { log })).rejects.toThrow();
   });
 
   it('refuses audio in a format it cannot serve', async () => {
