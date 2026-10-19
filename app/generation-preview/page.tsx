@@ -268,6 +268,14 @@ function GenerationPreviewContent() {
     void sendConfirm(editedOutlines);
   };
 
+  if (status === 'auth-required') {
+    return (
+      <div className="min-h-[100dvh] w-full bg-background flex items-center justify-center p-4">
+        <p className="text-sm text-muted-foreground">{t('accessCode.title')}</p>
+      </div>
+    );
+  }
+
   // The run cannot be read now; the page keeps trying.
   if (status === 'error' && runId) {
     return (

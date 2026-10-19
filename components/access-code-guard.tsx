@@ -6,7 +6,16 @@ import { importLegacyModelSettings } from '@/components/model-settings-init';
 import { modelSettingsClient } from '@/lib/model-settings/client';
 import { reloadAgentRegistry } from '@/lib/orchestration/registry/store';
 
+const ACCESS_CODE_REQUESTED = 'access-code-requested';
+
+export function requestAccessCode() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(ACCESS_CODE_REQUESTED));
+  }
+}
+
 export function AccessCodeGuard({ children }: { children: ReactNode }) {
+  const [authRequired, setAuthRequired] = useState(false);
   const [status, setStatus] = useState<{
     enabled: boolean;
     authenticated: boolean;
@@ -19,6 +28,8 @@ export function AccessCodeGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    const onAccessCodeRequested = () => setAuthRequired(true);
+    window.addEventListener(ACCESS_CODE_REQUESTED, onAccessCodeRequested);
     fetch('/api/access-code/status')
       .then((res) => res.json())
       .then((data) => {
@@ -38,10 +49,11 @@ export function AccessCodeGuard({ children }: { children: ReactNode }) {
       });
     return () => {
       cancelled = true;
+      window.removeEventListener(ACCESS_CODE_REQUESTED, onAccessCodeRequested);
     };
   }, []);
 
-  const needsAuth = !status.loading && status.enabled && !status.authenticated;
+  const needsAuth = authRequired || (!status.loading && status.enabled && !status.authenticated);
 
   return (
     <>
@@ -49,6 +61,7 @@ export function AccessCodeGuard({ children }: { children: ReactNode }) {
         <AccessCodeModal
           open={true}
           onSuccess={() => {
+            setAuthRequired(false);
             setStatus((s) => ({ ...s, authenticated: true }));
             setGrantedCount((n) => n + 1);
             // Model settings are read on mount, which on an ACCESS_CODE-gated

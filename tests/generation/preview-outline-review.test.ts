@@ -14,6 +14,7 @@ import i18next, { type i18n as I18n } from 'i18next';
 
 import enUS from '@/lib/i18n/locales/en-US.json';
 import type { RunView } from '@/lib/generation-run-client/types';
+import type { RunFollowStatus } from '@/lib/generation-run-client/use-generation-run';
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -30,11 +31,14 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {}, replace: () => {} }),
   useSearchParams: () => new URLSearchParams('run=run-AAAAAAAAAAAAAAAA'),
 }));
-const followed = vi.hoisted(() => ({ view: null as RunView | null }));
+const followed = vi.hoisted(() => ({
+  view: null as RunView | null,
+  status: 'live' as RunFollowStatus,
+}));
 vi.mock('@/lib/generation-run-client/use-generation-run', () => ({
   useGenerationRun: () => ({
     view: followed.view,
-    status: 'live',
+    status: followed.status,
     caughtUp: true,
     refresh: async () => {},
   }),
@@ -48,11 +52,12 @@ const commands = vi.hoisted(() => ({
     outlineRevision: 2,
   })),
   holdOutline: vi.fn(async (..._args: unknown[]) => {}),
+  retryPausedRun: vi.fn(),
 }));
 vi.mock('@/lib/generation-run-client/commands', () => ({
   confirmOutline: commands.confirmOutline,
   holdOutline: commands.holdOutline,
-  retryPausedRun: vi.fn(),
+  retryPausedRun: commands.retryPausedRun,
 }));
 
 import GenerationPreviewPage from '@/app/generation-preview/page';
@@ -79,8 +84,11 @@ let root: Root | null = null;
 let host: HTMLElement;
 beforeEach(() => {
   vi.useFakeTimers();
+  followed.view = null;
+  followed.status = 'live';
   commands.confirmOutline.mockClear();
   commands.holdOutline.mockClear();
+  commands.retryPausedRun.mockClear();
   sessionStorage.clear();
 });
 afterEach(() => {
@@ -90,7 +98,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function render(view: RunView) {
+function render(view: RunView | null) {
   followed.view = view;
   if (!root) {
     host = document.createElement('div');
@@ -149,6 +157,29 @@ async function settle() {
     await Promise.resolve();
   });
 }
+
+describe('the preview of a run that requires authentication', () => {
+  it.each([
+    ['without a view', null],
+    ['with an existing view', outlineReady(streaming('countdown'), true)],
+  ] as const)('shows the access-code prompt %s without mutating the run', async (_label, view) => {
+    followed.status = 'auth-required';
+    render(view);
+    await settle();
+    act(() => vi.advanceTimersByTime(10_000));
+
+    expect(host.textContent).toContain(enUS.accessCode.title);
+    expect(host.textContent).not.toContain(enUS.generation.runLoadFailed);
+    expect(host.textContent).not.toContain(enUS.generation.runLoadRetrying);
+    expect(host.textContent).not.toContain(enUS.generation.sessionNotFound);
+    expect(editor()).toBe(false);
+    expect(reviewEntry()).toBeNull();
+    expect(confirmButton()).toBeNull();
+    expect(commands.confirmOutline).not.toHaveBeenCalled();
+    expect(commands.holdOutline).not.toHaveBeenCalled();
+    expect(commands.retryPausedRun).not.toHaveBeenCalled();
+  });
+});
 
 describe('the preview of a run that confirms its outline after a countdown', () => {
   it('shows the outline-ready card from the run, and never confirms on a timer', () => {

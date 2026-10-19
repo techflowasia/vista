@@ -20,6 +20,10 @@ import { ensureAgentSessionMaterialSchema } from '@openmaic/storage/material/pg'
 import type { Queryable } from '@openmaic/storage/asset/pg';
 import { setMaterialByteStoreForTests } from '@/lib/server/materials/bytes';
 import { ensureOwnerMaterialSchema } from '@/lib/persistence/owner-materials';
+import {
+  setDeploymentConfigForTests,
+  setWorkspaceLayerLoaderForTests,
+} from '@/lib/server/model-config/runtime';
 
 // Schema bootstrap is serialized by a PostgreSQL advisory lock on a dedicated
 // connection; the fakes here have no connections, and the lock itself is
@@ -167,9 +171,23 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   setMaterialByteStoreForTests(null);
+  setDeploymentConfigForTests({
+    layer: {
+      source: 'deployment',
+      config: {
+        providers: { main: { preset: 'openai', apiKey: 'unit-test-key' } },
+        slots: { llm: 'main:gpt-4o-mini' },
+      },
+    },
+    legacy: false,
+    notices: [],
+  });
+  setWorkspaceLayerLoaderForTests(async () => null);
 });
 
 afterEach(async () => {
+  setDeploymentConfigForTests();
+  setWorkspaceLayerLoaderForTests();
   await db?.close();
   db = undefined;
 });

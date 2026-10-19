@@ -20,7 +20,12 @@ export class ClassroomPage {
   }
 
   async clickScene(index: number) {
-    await this.sidebarScenes.nth(index).click();
+    const scene = this.sidebarScenes.nth(index);
+    await scene.waitFor({ state: 'attached' });
+    if (!(await scene.isVisible())) {
+      await this.page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
+    }
+    await scene.click();
   }
 
   /** Get scene title — it's the second span (first is the number badge) */

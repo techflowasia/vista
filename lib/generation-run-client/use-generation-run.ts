@@ -3,6 +3,7 @@
 /** Follow one generation run from a React component (see `RunFollower`). */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { requestAccessCode } from '@/components/access-code-guard';
 import { createLogger } from '@/lib/logger';
 
 import { fetchGenerationRun } from './api';
@@ -36,7 +37,10 @@ export function useGenerationRun(runId: string | null): FollowedRun {
     const follower = new RunFollower(runId, {
       fetchSnapshot: fetchGenerationRun,
       openEvents: typeof EventSource === 'undefined' ? null : (url: string) => new EventSource(url),
-      onChange: (value) => setState({ runId, value }),
+      onChange: (value) => {
+        setState({ runId, value });
+        if (value.status === 'auth-required') requestAccessCode();
+      },
       onWarn: (message, error) => log.warn(`${message}:`, error),
       isVisible: () => document.visibilityState === 'visible',
     });
