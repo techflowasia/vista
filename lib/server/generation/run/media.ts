@@ -28,7 +28,7 @@ import { toAssetId } from '@openmaic/storage';
 import { rewriteSceneMediaReference } from '@/lib/media/generated-media-references';
 import { ASSET_QUOTA_EXCEEDED } from '@/lib/media/media-failure';
 import type { MediaGenerationRequest } from '@/lib/media/types';
-import { createLogger } from '@/lib/logger';
+import { inGenerationStage, observeGeneration, quietGenerationLogger } from './observability';
 import { assetPrincipalForOwner } from '@/lib/persistence/owner-assets';
 import { getServerPersistenceProvider } from '@/lib/persistence/server-provider';
 import { classifyHostFailure } from '@/lib/server/generation-run-hooks/runtime';
@@ -53,7 +53,7 @@ import type {
   NewGenerationRunEvent,
 } from './types';
 
-const log = createLogger('GenerationRunMedia');
+const log = quietGenerationLogger;
 
 /**
  * The budget of one image or video: the 300 s the image and video routes
@@ -353,48 +353,58 @@ async function generateItem(
     let media: { bytes: Uint8Array; mimeType: string };
     let poster: { bytes: Uint8Array; mimeType: string } | undefined;
     if (mediaType === 'image') {
-      media = await withDeadline(stepId, MEDIA_DEADLINE_MS, ctx.signal, (signal) =>
-        ctx.services.generateImage(
-          owner,
-          { request, stageId: ctx.stageId, connection },
-          { log, signal },
+      media = await inGenerationStage('image', () =>
+        withDeadline(stepId, MEDIA_DEADLINE_MS, ctx.signal, (signal) =>
+          ctx.services.generateImage(
+            owner,
+            { request, stageId: ctx.stageId, connection },
+            { log, signal },
+          ),
         ),
       );
     } else {
       const resume = task;
       if (resume) log.info(`run ${ctx.runId}: resuming the wait on video task ${resume.taskId}`);
-      const video = await withDeadline(stepId, MEDIA_DEADLINE_MS, ctx.signal, (signal) =>
-        ctx.services.generateVideo(
-          owner,
-          {
-            request,
-            connection,
-            ...(resume ? { resume } : {}),
-            // Recorded before the wait, so a takeover waits on this
-            // task. A write that fails for a passing reason is tried again in
-            // place: the task is paid for.
-            onProviderTask: async (submitted) => {
-              for (let attempt = 1; ; attempt += 1) {
-                try {
-                  await ctx.commit({
-                    step: {
-                      id: stepId,
-                      output: { mediaType, status: 'submitted', task: submitted },
-                    },
-                  });
-                  return;
-                } catch (error) {
-                  if (endsLane(error, ctx.signal) || attempt >= TASK_RECORD_ATTEMPTS) throw error;
-                  log.warn(
-                    `run ${ctx.runId}: recording video task ${submitted.taskId} failed; again`,
-                    error,
-                  );
-                  await ctx.services.sleep(500 * attempt, ctx.signal);
+      const video = await inGenerationStage('video', () =>
+        withDeadline(stepId, MEDIA_DEADLINE_MS, ctx.signal, (signal) =>
+          ctx.services.generateVideo(
+            owner,
+            {
+              request,
+              connection,
+              ...(resume ? { resume } : {}),
+              // Recorded before the wait, so a takeover waits on this
+              // task. A write that fails for a passing reason is tried again in
+              // place: the task is paid for.
+              onProviderTask: async (submitted) => {
+                for (let attempt = 1; ; attempt += 1) {
+                  try {
+                    await ctx.commit({
+                      step: {
+                        id: stepId,
+                        output: { mediaType, status: 'submitted', task: submitted },
+                      },
+                    });
+                    if (attempt > 1) observeGeneration('retry_recovered', { attempt });
+                    return;
+                  } catch (error) {
+                    if (endsLane(error, ctx.signal)) throw error;
+                    if (attempt >= TASK_RECORD_ATTEMPTS) {
+                      observeGeneration('retry_exhausted', { attempt, error });
+                      throw error;
+                    }
+                    observeGeneration('retry_scheduled', {
+                      attempt,
+                      error,
+                      nextDelayMs: 500 * attempt,
+                    });
+                    await ctx.services.sleep(500 * attempt, ctx.signal);
+                  }
                 }
-              }
+              },
             },
-          },
-          { log, signal },
+            { log, signal },
+          ),
         ),
       );
       media = video.video;

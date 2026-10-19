@@ -9,6 +9,7 @@
  * package's outline prompt. The stream is retried on the same model, then
  * once on the stage's fallback model, and every retry is reported as an event.
  */
+import { observeGeneration } from '../run/observability';
 import { attachedModelFallback } from '@/lib/ai/model-fallbacks';
 import { streamLLM } from '@/lib/ai/llm';
 import {
@@ -533,7 +534,13 @@ async function streamOutlines(
   const { model, prompts, visionImages, taskEngineMode, requirement } = prepared;
   const { model: languageModel, modelInfo, thinkingConfig } = model;
   const { log, signal } = ctx;
-  const emit = (event: OutlineEvent) => ctx.emit?.(event);
+  let attempts = 0;
+  const started = Date.now();
+  const emit = (event: OutlineEvent) => {
+    if (event.type === 'retry')
+      observeGeneration('retry_scheduled', { attempt: attempts, elapsedMs: Date.now() - started });
+    ctx.emit?.(event);
+  };
 
   // Retryable-failure fallback: after the same-model retries are
   // exhausted, retry once on the stage's configured fallback model.
@@ -610,6 +617,7 @@ async function streamOutlines(
     attempt <= MAX_STREAM_RETRIES + 1 && !(fellBack && attempt > 1);
     attempt++
   ) {
+    attempts += 1;
     lastCause = undefined;
     try {
       let fullText = '';
@@ -782,12 +790,18 @@ async function streamOutlines(
 
   if (parsedOutlines.length === 0) {
     // All retries exhausted, no outlines produced
-    log.error(`Outline generation failed: ${lastError}`);
+    observeGeneration(attempts > 1 ? 'retry_exhausted' : 'failed', {
+      attempt: attempts,
+      error: lastCause,
+      elapsedMs: Date.now() - started,
+    });
     throw new OutlineGenerationError(lastError || 'Failed to generate outlines', {
       cause: lastCause,
     });
   }
 
+  if (attempts > 1)
+    observeGeneration('retry_recovered', { attempt: attempts, elapsedMs: Date.now() - started });
   return {
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
     outlines: uniquifyMediaElementIds(parsedOutlines),

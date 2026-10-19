@@ -15,6 +15,8 @@ import {
   classifyHostFailure,
   isProviderQuotaRefusal,
 } from '@/lib/server/generation-run-hooks/runtime';
+import { randomUUID } from 'node:crypto';
+import { observeGeneration } from './observability';
 import { StepRefusal } from '@/lib/server/generation/steps/context';
 import { upstreamHttpStatus } from '@/lib/server/llm-error-response';
 
@@ -67,12 +69,18 @@ export async function withRouteRetry<T>(
   options: RouteRetryOptions,
 ): Promise<T> {
   let cause = '';
+  let attempt = 0;
+  let lastError: unknown;
+  const operationId = randomUUID();
+  const started = Date.now();
   try {
-    return await withGenerationRetry(
-      async () => {
+    const result = await withGenerationRetry(
+      async (currentAttempt) => {
+        attempt = currentAttempt;
         try {
           return await operation();
         } catch (error) {
+          lastError = error;
           if (isAbortError(error)) throw error;
           cause = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
           throw new RouteStatusError(
@@ -87,10 +95,35 @@ export async function withRouteRetry<T>(
         maxRetries: options.maxRetries,
         sleep: options.sleep,
         signal: options.signal,
-        onRetry: options.onRetry && ((event) => options.onRetry!({ ...event, cause })),
+        onRetry: async (event) => {
+          await options.onRetry?.({ ...event, cause });
+          observeGeneration('retry_scheduled', {
+            attempt,
+            operationId,
+            error: lastError,
+            nextDelayMs: event.nextDelayMs,
+            elapsedMs: Date.now() - started,
+          });
+        },
       },
     );
+    if (attempt > 1)
+      observeGeneration('retry_recovered', {
+        attempt,
+        operationId,
+        elapsedMs: Date.now() - started,
+      });
+    return result;
   } catch (error) {
-    throw error instanceof RouteStatusError ? error.original : error;
+    const original = error instanceof RouteStatusError ? error.original : error;
+    observeGeneration(
+      isAbortError(original) || options.signal?.aborted
+        ? 'cancelled'
+        : attempt >= options.maxRetries + 1
+          ? 'retry_exhausted'
+          : 'failed',
+      { attempt, operationId, error: original, elapsedMs: Date.now() - started },
+    );
+    throw original;
   }
 }

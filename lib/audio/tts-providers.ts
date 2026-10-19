@@ -417,6 +417,86 @@ async function generateOpenRouterTTS(
     /\/$/,
     '',
   );
+  const modelId = config.modelId || TTS_PROVIDERS['openrouter-tts'].defaultModelId;
+
+  // Google Gemini TTS models on OpenRouter use /audio/speech with PCM audio
+  if (modelId?.startsWith('google/')) {
+    const isGoogleVoice =
+      config.voice &&
+      !['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'].includes(config.voice) &&
+      !config.voice.startsWith('af_') &&
+      !config.voice.startsWith('am_') &&
+      !config.voice.startsWith('bf_') &&
+      !config.voice.startsWith('bm_') &&
+      !config.voice.startsWith('zf_') &&
+      !config.voice.startsWith('zm_') &&
+      !config.voice.startsWith('jf_') &&
+      !config.voice.startsWith('jm_');
+    const voice = isGoogleVoice ? config.voice : 'Kore';
+
+    const response = await ttsFetch(config, `${baseUrl}/audio/speech`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json; charset=utf-8',
+        ...appAttributionHeaders(baseUrl),
+      },
+      body: JSON.stringify({
+        model: modelId,
+        input: text,
+        voice,
+        speed: config.speed || 1.0,
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      throwIfTtsRateLimited('OpenRouter', response.status, response.headers?.get('retry-after'));
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(`OpenRouter TTS API error: ${error.error?.message || response.statusText}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    const buffer = await response.arrayBuffer();
+    const pcm = new Uint8Array(buffer);
+    if (pcm.byteLength === 0) {
+      throw new Error('OpenRouter TTS API error: empty audio payload');
+    }
+    const sampleRate = sampleRateFromL16Mime(contentType) || 24_000;
+    return {
+      audio: pcmS16leMonoToWav(pcm, sampleRate),
+      format: 'wav',
+    };
+  }
+
+  // Dedicated speech models (such as hexgrad/kokoro-82m) use OpenRouter's /audio/speech endpoint
+  if (modelId === 'hexgrad/kokoro-82m' || modelId?.startsWith('hexgrad/')) {
+    const response = await ttsFetch(config, `${baseUrl}/audio/speech`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json; charset=utf-8',
+        ...appAttributionHeaders(baseUrl),
+      },
+      body: JSON.stringify({
+        model: modelId,
+        input: text,
+        voice: config.voice || 'alloy',
+        speed: config.speed || 1.0,
+        response_format: 'mp3',
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      throwIfTtsRateLimited('OpenRouter', response.status, response.headers?.get('retry-after'));
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(`OpenRouter TTS API error: ${error.error?.message || response.statusText}`);
+    }
+
+    return await validateTTSAudioResponse(response, 'OpenRouter', 'mp3');
+  }
+
   const response = await ttsFetch(config, `${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -425,7 +505,7 @@ async function generateOpenRouterTTS(
       ...appAttributionHeaders(baseUrl),
     },
     body: JSON.stringify({
-      model: config.modelId || TTS_PROVIDERS['openrouter-tts'].defaultModelId,
+      model: modelId,
       messages: [{ role: 'user', content: text }],
       modalities: ['text', 'audio'],
       audio: { voice: config.voice, format: 'pcm16' },

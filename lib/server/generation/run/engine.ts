@@ -52,7 +52,12 @@ import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
 import { validateAppScene } from '@/lib/document-store/validators';
 import { sceneCarriesMediaReference } from '@/lib/media/generated-media-references';
 import { buildVideoManifestFromOutlines } from '@/lib/media/video-manifest';
-import { createLogger } from '@/lib/logger';
+import {
+  inGenerationRun,
+  inGenerationStage,
+  observeGeneration,
+  quietGenerationLogger,
+} from './observability';
 import { BUILT_IN_AGENTS } from '@/lib/orchestration/registry/built-in';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
 import { generateClassroomId } from '@/lib/server/classroom-persistence';
@@ -150,7 +155,7 @@ import type {
   NewGenerationRunEvent,
 } from './types';
 
-const log = createLogger('GenerationRun');
+const log = quietGenerationLogger;
 
 /** The avatars the agent-profiles step may pick from, as the generation preview offers them. */
 const AGENT_AVATARS = [
@@ -369,6 +374,24 @@ export async function executeGenerationRun(
   claim: ClaimedRun,
   options: ExecuteRunOptions,
 ): Promise<RunExecutionOutcome> {
+  return inGenerationRun(claim.run.id, async () => {
+    const started = Date.now();
+    observeGeneration('started');
+    try {
+      const outcome = await executeObservedRun(claim, options);
+      observeGeneration(outcome, { elapsedMs: Date.now() - started });
+      return outcome;
+    } catch (error) {
+      observeGeneration('failed', { error, elapsedMs: Date.now() - started });
+      throw error;
+    }
+  });
+}
+
+async function executeObservedRun(
+  claim: ClaimedRun,
+  options: ExecuteRunOptions,
+): Promise<RunExecutionOutcome> {
   const { run, lease, takeover } = claim;
   // Resolved only for a wrapper: the execution resolves it again itself.
   const currentOwnerId = getGenerationRunHooks().wrapExecution
@@ -388,7 +411,7 @@ export async function executeGenerationRun(
   );
   if (result.ran) return result.value;
   const { error } = result;
-  log.warn(`run ${run.id}: the host refused its execution; pausing`, error);
+  observeGeneration('failed', { error });
   options.onLeaseReleased?.();
   return refuseGenerationRunExecution(lease, {
     message: error instanceof Error ? error.message || 'The execution was refused' : String(error),
@@ -506,29 +529,31 @@ async function executeClaimedRun(
     const { outlines, languageDirective, taskEngineMode } = outline();
     const stepId = sceneStepId(sceneIndex, 'content');
     const research = output<ResearchOutput>('research');
-    return withRouteRetry(
-      () =>
-        withDeadline(stepId, STEP_DEADLINES_MS.sceneContent, contentSignal, (callSignal) =>
-          services.sceneContent(
-            owner,
-            {
-              outline: outlines[sceneIndex]!,
-              ...materialImages(),
-              agents: agents().agents.agents,
-              languageDirective,
-              // The first scene is generated with the session's requirements;
-              // the classroom generates the rest with the task-engine flag only.
-              requirements:
-                sceneIndex === 0
-                  ? runRequirements(input, research?.webSearch === true)
-                  : taskEngineMode
-                    ? ({ taskEngineMode: true } as UserRequirements)
-                    : undefined,
-            },
-            { log, signal: callSignal },
+    return inGenerationStage(stepId, () =>
+      withRouteRetry(
+        () =>
+          withDeadline(stepId, STEP_DEADLINES_MS.sceneContent, contentSignal, (callSignal) =>
+            services.sceneContent(
+              owner,
+              {
+                outline: outlines[sceneIndex]!,
+                ...materialImages(),
+                agents: agents().agents.agents,
+                languageDirective,
+                // The first scene is generated with the session's requirements;
+                // the classroom generates the rest with the task-engine flag only.
+                requirements:
+                  sceneIndex === 0
+                    ? runRequirements(input, research?.webSearch === true)
+                    : taskEngineMode
+                      ? ({ taskEngineMode: true } as UserRequirements)
+                      : undefined,
+              },
+              { log, signal: callSignal },
+            ),
           ),
-        ),
-      retryOptions(stepId, sceneIndex, 500, contentSignal),
+        retryOptions(stepId, sceneIndex, 500, contentSignal),
+      ),
     );
   };
   // Content generated ahead, by scene index (a holder: closures assign it).
@@ -944,10 +969,11 @@ async function executeClaimedRun(
         // A host failure no retry helps pauses the run here instead.
         if (isNonRetryableHostFailure(error)) throw error;
         // As the browser does: the learner's selected preset agents teach.
-        log.warn(`run ${run.id}: agent generation failed, falling back to presets:`, error);
+        observeGeneration('retry_scheduled', { attempt: 1, error });
         // Never an empty roster: without a selection, the browser's default one.
         const selected = input.agents.presetAgentIds ?? [];
         result = await presets(selected.length > 0 ? selected : DEFAULT_PRESET_AGENT_IDS);
+        observeGeneration('retry_recovered', { attempt: 2 });
       }
     } else {
       // No agents selected: the default presets, as the learner's selection
@@ -1382,6 +1408,10 @@ async function executeClaimedRun(
         log.warn(
           `run ${run.id}: placing ${elementId} failed (${failures}/${MAX_PLACEMENT_ATTEMPTS})`,
           error,
+        );
+        observeGeneration(
+          failures < MAX_PLACEMENT_ATTEMPTS ? 'retry_scheduled' : 'retry_exhausted',
+          { attempt: failures, error },
         );
         if (failures < MAX_PLACEMENT_ATTEMPTS) {
           await commit({
@@ -1825,7 +1855,9 @@ async function executeClaimedRun(
       });
       let change: StepCommit | null;
       try {
-        change = await runStep(step);
+        change = await (step.kind === 'content'
+          ? runStep(step)
+          : inGenerationStage(step.id, () => runStep(step)));
       } catch (error) {
         if (
           signal.aborted ||
