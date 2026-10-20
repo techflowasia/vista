@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useDeferredValue } from 'react';
+import { useState, useEffect, useMemo, useRef, useDeferredValue, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -110,6 +110,7 @@ import { useImportPptx } from '@/lib/import/use-import-pptx';
 import { InteractiveModeButton } from '@/components/generation/interactive-mode-button';
 import { ProBadge } from '@/components/workbench/ProBadge';
 import { arrivedByProSwap, startProSwap } from '@/lib/workbench/pro-swap';
+import { createCoalescedLatestLoader } from '@/lib/workbench/course-discovery-sync';
 import {
   readLastWorkspaceSessionId,
   workspaceResumeHref,
@@ -271,16 +272,23 @@ function HomePage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [themeOpen]);
 
-  const loadClassrooms = async () => {
-    try {
-      const list = await listStages();
-      setClassrooms(list);
-      retainThumbnails(new Set(list.map((c) => c.id)));
-    } catch (err) {
-      log.error('Failed to load classrooms:', err);
-      toast.error('Persistence is unavailable. Saved classrooms could not be loaded.');
+  const classroomLoaderRef = useRef<(() => Promise<void>) | null>(null);
+  const loadClassrooms = useCallback(() => {
+    if (!classroomLoaderRef.current) {
+      classroomLoaderRef.current = createCoalescedLatestLoader({
+        load: listStages,
+        commit: (list) => {
+          setClassrooms(list);
+          retainThumbnails(new Set(list.map((c) => c.id)));
+        },
+        fail: (err) => {
+          log.error('Failed to load classrooms:', err);
+          toast.error('Persistence is unavailable. Saved classrooms could not be loaded.');
+        },
+      });
     }
-  };
+    return classroomLoaderRef.current();
+  }, [retainThumbnails]);
 
   // Courses being generated on the server: a card from the moment the run
   // starts, live through the owner's run stream.
@@ -288,13 +296,13 @@ function HomePage() {
     onCourseChanged: () => void loadClassrooms(),
   });
 
-  const loadFolders = async () => {
+  const loadFolders = useCallback(async () => {
     try {
       setFolders(await listFolders());
     } catch (err) {
       log.error('Failed to load folders:', err);
     }
-  };
+  }, []);
 
   // Capture the active folder when an import starts so the imported course
   // lands in that folder, not whichever folder is active when the async import
@@ -351,7 +359,7 @@ function HomePage() {
     return () => {
       window.removeEventListener(LIBRARY_CHANGED_EVENT, onLibraryChanged);
     };
-  }, []);
+  }, [loadClassrooms, loadFolders]);
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();

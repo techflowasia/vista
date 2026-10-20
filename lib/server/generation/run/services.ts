@@ -6,6 +6,10 @@
  * The engine depends on this interface only, so a test runs the engine with
  * its own step outputs and checks the inputs each step received.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { languageModelFor } from '@/lib/server/model-config/llm';
+import { savedProviderTarget } from '@/lib/server/model-config/runtime';
+import type { GenerationRunAttributes } from '@/lib/server/generation-run-hooks/types';
 import type { Queryable } from '@openmaic/storage/document/pg';
 
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
@@ -244,8 +248,41 @@ function narrationMimeType(format: string): string | undefined {
 }
 
 /** The model of `stage` for the owner the run works for now (a claim may have moved it). */
+const recoveryModel = new AsyncLocalStorage<string>();
+
+export function recoveryRunStepServices(
+  services: RunStepServices,
+  attributes: GenerationRunAttributes | null | undefined,
+): RunStepServices {
+  if (!attributes?.recoveryModel || attributes.recoverySkipVoice !== 'true') return services;
+  const ref = attributes.recoveryModel;
+  const pinned = <T>(operation: () => Promise<T>) => recoveryModel.run(ref, operation);
+  return {
+    ...services,
+    research: (owner, input, ctx) => pinned(() => services.research(owner, input, ctx)),
+    outline: (owner, input, ctx) => pinned(() => services.outline(owner, input, ctx)),
+    agentProfiles: (owner, input, ctx) => pinned(() => services.agentProfiles(owner, input, ctx)),
+    sceneContent: (owner, input, ctx) => pinned(() => services.sceneContent(owner, input, ctx)),
+    sceneActions: (owner, input, ctx) => pinned(() => services.sceneActions(owner, input, ctx)),
+    narrationTarget: async () => null,
+    narrateClip: async () => {
+      throw new Error('Narration is disabled for this recovery');
+    },
+    mediaConnections: async () => ({ image: { status: 'off' }, video: { status: 'off' } }),
+    generateImage: async () => {
+      throw new Error('Image generation is disabled for this recovery');
+    },
+    generateVideo: async () => {
+      throw new Error('Video generation is disabled for this recovery');
+    },
+  };
+}
+
 async function stageModel(ownerId: string, stage: LlmStage): Promise<ResolvedModel> {
-  return resolveModel({ stage, workspaceId: await backgroundWorkspaceId(ownerId) });
+  const workspaceId = await backgroundWorkspaceId(ownerId);
+  const ref = recoveryModel.getStore();
+  if (ref) return languageModelFor(await savedProviderTarget(ref, 'chat', workspaceId));
+  return resolveModel({ stage, workspaceId });
 }
 
 /**

@@ -130,7 +130,7 @@ import {
 import { STEP_DEADLINES_MS, withDeadline } from './deadline';
 import { runFailureCode, type RunFailureCode } from './failure-code';
 import { reportCommittedRunEvents } from './hook-events';
-import type { RunMaterialImage, RunStepServices } from './services';
+import { recoveryRunStepServices, type RunMaterialImage, type RunStepServices } from './services';
 import {
   commitGenerationRun,
   commitGenerationRunIn,
@@ -424,7 +424,8 @@ async function executeClaimedRun(
   options: ExecuteRunOptions,
 ): Promise<RunExecutionOutcome> {
   const { lease } = claim;
-  const { services, signal } = options;
+  const { signal } = options;
+  const services = recoveryRunStepServices(options.services, claim.run.hostAttributes);
   let run: StoredRun = claim.run;
   const input = run.input;
   // The owner the run works for now, refreshed at every step boundary: a

@@ -20,11 +20,12 @@
  */
 import { GENERATION_RUN_EVENT_TYPES } from '@/lib/server/generation/run/types';
 
+import { RunApiError } from './api';
 import { applyRunEvent, followFrom, viewFromSnapshot } from './reducer';
 import { isFinishedRunState, type RunEvent, type RunSnapshot, type RunView } from './types';
 
 /** `error`: the run could not be read yet (the follower keeps trying). */
-export type RunFollowStatus = 'loading' | 'live' | 'missing' | 'error';
+export type RunFollowStatus = 'loading' | 'live' | 'missing' | 'error' | 'auth-required';
 
 export interface RunFollowerState {
   view: RunView | null;
@@ -121,6 +122,20 @@ export class RunFollower {
     this.deps.onChange(this.state);
   }
 
+  private get suspended(): boolean {
+    return this.closed || this.state.status === 'auth-required';
+  }
+
+  private requireAccess(error: unknown): boolean {
+    if (!(error instanceof RunApiError) || error.status !== 401) return false;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.closeSource();
+    this.buffered = [];
+    this.publish({ status: 'auth-required' });
+    return true;
+  }
+
   private retryDelay(): number {
     const base = this.deps.retryBaseMs ?? 1_000;
     const delay = Math.min(base * 2 ** Math.max(0, this.failures - 1), MAX_RETRY_MS);
@@ -129,7 +144,7 @@ export class RunFollower {
   }
 
   private schedule(delayMs: number, run: () => void): void {
-    if (this.closed) return;
+    if (this.suspended) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -138,6 +153,7 @@ export class RunFollower {
   }
 
   private fold(event: RunEvent): void {
+    if (this.suspended) return;
     if (this.resyncing) {
       this.buffered.push(event);
       return;
@@ -177,8 +193,9 @@ export class RunFollower {
   }
 
   private async readSnapshotNow(): Promise<void> {
+    if (this.suspended) return;
     const snapshot = await this.fetchSnapshot();
-    if (this.closed) return;
+    if (this.suspended) return;
     // An answer older than what the view already holds changes nothing.
     if (snapshot && this.state.view && snapshot.seq < this.state.view.seq) {
       this.publish({ status: 'live' });
@@ -198,9 +215,13 @@ export class RunFollower {
 
   /** Read the snapshot again (a `resync`, an edited outline, after a command). */
   resync(): Promise<void> {
+    if (this.suspended) return Promise.resolve();
     if (!this.resyncing) {
       this.resyncing = this.readSnapshot()
-        .catch((error) => this.deps.onWarn?.('Reading the run snapshot failed', error))
+        .catch((error) => {
+          if (this.suspended || this.requireAccess(error)) return;
+          this.deps.onWarn?.('Reading the run snapshot failed', error);
+        })
         .finally(() => {
           this.resyncing = null;
           const pending = this.buffered;
@@ -232,11 +253,12 @@ export class RunFollower {
   };
 
   async start(): Promise<void> {
+    if (this.suspended) return;
     let snapshot: RunSnapshot | null;
     try {
       snapshot = await this.fetchSnapshot();
     } catch (error) {
-      if (this.closed) return;
+      if (this.suspended || this.requireAccess(error)) return;
       // Not "no such run": the read failed, and is tried again.
       this.failures += 1;
       this.deps.onWarn?.('Reading the run failed', error);
@@ -244,7 +266,7 @@ export class RunFollower {
       this.schedule(this.retryDelay(), () => void this.start());
       return;
     }
-    if (this.closed) return;
+    if (this.suspended) return;
     this.failures = 0;
     if (!snapshot) {
       this.publish({ status: 'missing' });
@@ -262,7 +284,7 @@ export class RunFollower {
   }
 
   private openEvents(after: number): void {
-    if (this.closed || this.source || !this.deps.openEvents) return;
+    if (this.suspended || this.source || !this.deps.openEvents) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     const source = this.deps.openEvents(
@@ -294,6 +316,7 @@ export class RunFollower {
     try {
       await this.readSnapshot();
     } catch (error) {
+      if (this.suspended || this.requireAccess(error)) return;
       this.failures += 1;
       this.deps.onWarn?.('Reading the run snapshot failed', error);
       this.schedule(this.retryDelay(), () => void this.reconnect());
@@ -310,7 +333,7 @@ export class RunFollower {
   /** Hold the stream while the run can change on its own; else read it now and then. */
   private settleTransport(): void {
     const view = this.state.view;
-    if (this.closed || !view || this.resyncing || this.state.status === 'missing') return;
+    if (this.suspended || !view || this.resyncing || this.state.status === 'missing') return;
     if (runIsMoving(view) && this.deps.openEvents) {
       if (!this.source && !this.timer) this.openEvents(view.seq);
       return;
@@ -335,6 +358,7 @@ export class RunFollower {
       await this.readSnapshot();
       this.failures = 0;
     } catch (error) {
+      if (this.suspended || this.requireAccess(error)) return;
       this.failures += 1;
       this.deps.onWarn?.('Reading the run snapshot failed', error);
       this.schedule(this.retryDelay(), () => void this.poll());
@@ -350,7 +374,7 @@ export class RunFollower {
    * waiting: the backoff is what keeps a refused stream from hammering.
    */
   async wake(reason: 'command' | 'visible' = 'command'): Promise<void> {
-    if (this.closed) return;
+    if (this.suspended) return;
     if (reason === 'visible' && this.failures > 0) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;

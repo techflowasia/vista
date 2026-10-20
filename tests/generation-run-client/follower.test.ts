@@ -6,6 +6,7 @@ import {
   type RunEventSource,
   type RunFollowerState,
 } from '@/lib/generation-run-client/follower';
+import { RunApiError } from '@/lib/generation-run-client/api';
 import { viewFromSnapshot } from '@/lib/generation-run-client/reducer';
 import type { RunSnapshot } from '@/lib/generation-run-client/types';
 
@@ -86,6 +87,43 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('RunFollower', () => {
+  it.each(['initial', 'poll', 'reconnect', 'resync'] as const)(
+    'suspends transport after a 401 during %s until a new authenticated follower mounts',
+    async (path) => {
+      const denied = new RunApiError(
+        401,
+        'INVALID_REQUEST',
+        'Access code required',
+        'generation.runLoadFailed',
+      );
+      const initial =
+        path === 'poll'
+          ? snapshot({ state: 'awaiting_outline_confirmation', seq: 8, outline: ready })
+          : generating();
+      const { follower, sources, fetchSnapshot, live } = setup(
+        path === 'initial' ? [denied] : [initial, denied],
+      );
+      await follower.start();
+      if (path === 'poll') await vi.advanceTimersByTimeAsync(5_000);
+      if (path === 'reconnect') {
+        sources[0]!.refuse();
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      if (path === 'resync') await follower.resync();
+      expect(follower.current.status).toBe('auth-required');
+      expect(follower.current.view?.seq ?? null).toBe(path === 'initial' ? null : initial.seq);
+      expect(live()).toHaveLength(0);
+      const reads = fetchSnapshot.mock.calls.length;
+      await follower.wake('visible');
+      await follower.wake();
+      await follower.resync();
+      await follower.start();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(fetchSnapshot).toHaveBeenCalledTimes(reads);
+      expect(follower.current.status).toBe('auth-required');
+      follower.close();
+    },
+  );
   it('rebuilds the view from the snapshot and the events after its seq', async () => {
     const { follower, sources } = setup([generating()]);
     await follower.start();
