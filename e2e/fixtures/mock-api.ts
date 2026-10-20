@@ -135,6 +135,8 @@ export interface MockRunOptions {
   stepMs?: number;
   /** How long a `countdown` run's outline waits before the run confirms it (ms). */
   countdownMs?: number;
+  beforeSecondScene?: Promise<void>;
+  beforeCompletion?: Promise<void>;
 }
 
 /** The body of the start request a run was created from. */
@@ -470,13 +472,13 @@ export class MockGenerationRun {
         this.push('scene_ready', { index: 0, sceneId: 'scene-0', order: 0 });
       },
       // Long enough for the classroom to mount while the run still generates.
-      () => new Promise((resolve) => setTimeout(resolve, 1_500)),
+      () => this.options.beforeSecondScene ?? new Promise((resolve) => setTimeout(resolve, 1_500)),
       async () => {
         this.push('step_started', { step: 'scene:1:content' });
         await this.storeCourse(2);
         this.push('scene_ready', { index: 1, sceneId: 'scene-1', order: 1 });
       },
-      () => new Promise((resolve) => setTimeout(resolve, 500)),
+      () => this.options.beforeCompletion ?? new Promise((resolve) => setTimeout(resolve, 500)),
       () => {
         this.push('completed', { stageId: this.stageId });
         this.push('state', { state: 'completed', step: null });

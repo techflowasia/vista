@@ -106,6 +106,27 @@ describe('generated course discovery production sync', () => {
     expect(fail).not.toHaveBeenCalled();
   });
 
+  it('reports overlapping failed loads once and still reports a later failed retry', async () => {
+    const load = vi.fn(async () => {
+      throw new Error('unavailable');
+    });
+    const commit = vi.fn();
+    const fail = vi.fn();
+    const reload = createCoalescedLatestLoader({ load, commit, fail });
+
+    await Promise.all([reload(), reload()]);
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(fail).toHaveBeenCalledOnce();
+    expect(commit).not.toHaveBeenCalled();
+
+    await reload();
+
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(fail).toHaveBeenCalledTimes(2);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it('recovers with a fresh request after the latest load fails', async () => {
     const load = vi
       .fn<() => Promise<string>>()
