@@ -5,12 +5,14 @@
  * from scene outlines.
  */
 
+import { validateShapeGeometry, shapeToTextFallback } from '@openmaic/geometry';
 import { nanoid } from 'nanoid';
 import katex from 'katex';
 import type {
   Action,
   PBLProject,
   PPTElement,
+  PPTShapeElement,
   QuizQuestion,
   SlideBackground,
   WidgetType,
@@ -77,6 +79,7 @@ export type SceneContentFailureCode = 'prompt-unavailable' | 'invalid-model-outp
 
 export interface SceneContentFailure {
   code: SceneContentFailureCode;
+  message?: string;
 }
 
 export interface SceneContentOptions {
@@ -500,7 +503,8 @@ function fixElementDefaults(
       // 1. Repair: a JSON `null` from the model means "absent" — strip nulls so
       //    normalize treats the field as missing and fills/derives it, instead
       //    of failing on a wrong-typed null (`start: null`, `text: null`, …).
-      // 2. Drop: if normalization still throws, discard the element. Keeping
+      // 2. Recover shape labels with the shared bounded text projection; discard
+      //    other elements when normalization still fails. Keeping
       //    the raw element would hand the malformed payload to consumers that
       //    read it unguarded (getElementRange / BaseLineElement / the PPTX
       //    exporter index straight into `start[0]`), crashing playback or
@@ -511,10 +515,28 @@ function fixElementDefaults(
         normalized = normalizeElement(stripNulls(el));
       } catch (err) {
         log.warn(
-          `Dropping malformed generated element: ${err instanceof Error ? err.message : String(err)}`,
+          `Malformed generated element: ${err instanceof Error ? err.message : String(err)}`,
         );
-        return null;
+        // The same recovery also handles malformed required path/viewBox types.
+        return el && typeof el === 'object' && el.type === 'shape'
+          ? shapeToTextFallback(el as unknown as PPTShapeElement)
+          : null;
       }
+
+      if (normalized.type === 'shape') {
+        const validation = validateShapeGeometry(normalized);
+        if (!validation.ok) {
+          const { field, position, message } = validation.error;
+          log.warn(
+            `Invalid generated shape; using text fallback when a label exists: ${field}${position === undefined ? '' : ` at ${position}`}: ${message}`,
+          );
+          return shapeToTextFallback(normalized);
+        }
+      }
+
+      // Ordinary model-authored text stays upright. Shape recovery returns
+      // above, preserving the original shape label's rotation in its text box.
+      if (normalized.type === 'text') normalized = { ...normalized, rotate: 0 };
 
       // Fit the image box to the assigned PDF image's real aspect ratio (`src` is
       // still the img_id at this point). Producer-specific, so it lives here, not
@@ -784,10 +806,19 @@ async function generateSlideContent(
     return null;
   }
 
+  const invalidRotation = findInvalidShapeRotation(generatedData.elements);
+  if (invalidRotation) {
+    log.error(invalidRotation);
+    onFailure?.({ code: 'invalid-model-output', message: invalidRotation });
+    return null;
+  }
+
   log.debug(`Got ${generatedData.elements.length} elements for: ${outline.title}`);
 
   // Debug: Log image elements before resolution
-  const imageElements = generatedData.elements.filter((el) => el.type === 'image');
+  const imageElements = generatedData.elements.filter(
+    (el) => el && typeof el === 'object' && el.type === 'image',
+  );
   if (imageElements.length > 0) {
     log.debug(
       `Image elements before resolution:`,
@@ -829,10 +860,11 @@ async function generateSlideContent(
   const processedElements: PPTElement[] = videoNormalizedElements.map((el) => ({
     ...el,
     id: `${el.type}_${nanoid(8)}`,
-    // Shape rotation is part of the model-facing geometry contract. Preserve
-    // finite angles while keeping the legacy zero default for other elements.
+    // Ordinary text was reset above; recovered shape labels retain their angle.
     rotate:
-      el.type === 'shape' && typeof el.rotate === 'number' && Number.isFinite(el.rotate)
+      (el.type === 'shape' || el.type === 'text') &&
+      typeof el.rotate === 'number' &&
+      Number.isFinite(el.rotate)
         ? el.rotate
         : 0,
   })) as PPTElement[];
@@ -855,6 +887,26 @@ async function generateSlideContent(
     background,
     remark: generatedData.remark || outline.description,
   };
+}
+
+function findInvalidShapeRotation(elements: GeneratedSlideData['elements']): string | undefined {
+  for (const [index, element] of elements.entries()) {
+    if (!element || typeof element !== 'object') {
+      continue;
+    }
+    if (element.type !== 'shape' || !Object.prototype.hasOwnProperty.call(element, 'rotate')) {
+      continue;
+    }
+
+    const rotate = element.rotate;
+    if (rotate === null || (typeof rotate === 'number' && Number.isFinite(rotate))) {
+      continue;
+    }
+
+    const received = typeof rotate === 'number' ? String(rotate) : JSON.stringify(rotate);
+    return `Invalid shape rotation at shape[${index}].rotate: expected a finite number in degrees or null, received ${received}`;
+  }
+  return undefined;
 }
 
 /**

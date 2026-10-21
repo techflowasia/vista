@@ -273,18 +273,14 @@ function installAgentShell(
 }
 
 describe('PPT element reference Route → Director → real call_agent L2', () => {
-  const piFlag = 'NEXT_PUBLIC_PI_CHAT_ENABLED';
   const coursewareReferenceFlag = 'NEXT_PUBLIC_COURSEWARE_REFERENCE_ENABLED';
   const nativeFlag = 'OPENMAIC_ENABLE_PI_NATIVE_CHILD_RUNTIME';
-  let originalPiFlag: string | undefined;
   let originalCoursewareReferenceFlag: string | undefined;
   let originalNativeFlag: string | undefined;
 
-  beforeEach(() => {
-    originalPiFlag = process.env[piFlag];
+  beforeEach(async () => {
     originalCoursewareReferenceFlag = process.env[coursewareReferenceFlag];
     originalNativeFlag = process.env[nativeFlag];
-    process.env[piFlag] = 'true';
     process.env[coursewareReferenceFlag] = 'true';
     delete process.env[nativeFlag];
     vi.resetModules();
@@ -304,12 +300,11 @@ describe('PPT element reference Route → Director → real call_agent L2', () =
       modelInfo: { outputWindow: 1024, contextWindow: 8192 },
       thinkingConfig: { mode: 'disabled', enabled: false },
     });
+    await import('@/app/api/chat/pi/route');
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
-    if (originalPiFlag === undefined) delete process.env[piFlag];
-    else process.env[piFlag] = originalPiFlag;
     if (originalCoursewareReferenceFlag === undefined) delete process.env[coursewareReferenceFlag];
     else process.env[coursewareReferenceFlag] = originalCoursewareReferenceFlag;
     if (originalNativeFlag === undefined) delete process.env[nativeFlag];

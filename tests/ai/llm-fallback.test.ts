@@ -227,7 +227,7 @@ describe('callLLM retryable-failure fallback', () => {
     const primary = { provider: 'deepseek', modelId: 'deepseek-v4-pro' } as never;
     attachModelFallback(primary, async () => ({
       model: 'slot-fallback' as never,
-      modelString: 'deepseek:deepseek-v4-flash',
+      modelString: 'deepseek:deepseek-flash',
     }));
     aiMock.generateText
       .mockRejectedValueOnce(Object.assign(new Error('quota exceeded'), { statusCode: 429 }))
@@ -252,7 +252,7 @@ describe('callLLM retryable-failure fallback', () => {
     const primary = { provider: 'deepseek', modelId: 'deepseek-v4-pro' } as never;
     attachModelFallback(primary, async () => ({
       model: 'slot-fallback' as never,
-      modelString: 'deepseek:deepseek-v4-flash',
+      modelString: 'deepseek:deepseek-flash',
     }));
     aiMock.generateText
       .mockRejectedValueOnce(Object.assign(new Error('quota exceeded'), { statusCode: 429 }))

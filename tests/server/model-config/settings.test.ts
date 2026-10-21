@@ -39,7 +39,7 @@ beforeEach(() => {
       operator: {
         preset: 'deepseek',
         apiKey: 'sk-operator-secret-0001',
-        models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+        models: ['deepseek-v4-pro', 'deepseek-flash'],
       },
     },
     // llm is a server default the workspace may change; video is locked off.
@@ -54,6 +54,174 @@ afterEach(() => {
 });
 
 describe('modelSettingsView', () => {
+  it.each([true, false])(
+    'links a protected implicit selection to the listed builtin provider with locked=%s',
+    (locked) => {
+      deployment({
+        providers: { builtin: { preset: 'firecrawl' } },
+        slots: { webFetch: 'builtin-default' },
+        ...(locked ? { lock: ['webFetch'] } : {}),
+      });
+      const view = modelSettingsView({
+        config: {
+          providers: { 'builtin-default': { preset: 'firecrawl', apiKey: 'workspace-key' } },
+        },
+        revision: 1,
+        unreadableSecrets: [],
+      });
+      const slot = view.slots.find(({ slot }) => slot === 'webFetch')!;
+      expect(slot).toMatchObject({
+        locked,
+        effective: {
+          status: 'assigned',
+          registryId: 'builtin',
+          providerId: 'builtin-default-default',
+          providerSource: 'deployment',
+        },
+      });
+      if (slot.effective.status !== 'assigned') throw new Error('Expected assigned reader');
+      const providerId = slot.effective.providerId;
+      expect(view.providers.find(({ id }) => id === providerId)).toMatchObject({
+        preset: 'builtin',
+        source: 'deployment',
+        capabilities: { webFetch: { registryId: 'builtin' } },
+      });
+      expect(view.providers.find(({ id }) => id === 'builtin-default')).toMatchObject({
+        preset: 'firecrawl',
+        source: 'workspace',
+      });
+    },
+  );
+
+  it('lists collision-free reader IDs and validates explicit and implicit selections', async () => {
+    deployment({ providers: { builtin: { preset: 'firecrawl' } } });
+    const config = {
+      providers: {
+        'builtin-default': { preset: 'firecrawl', apiKey: 'workspace-key' },
+        'builtin-default-default': { preset: 'tavily', apiKey: 'search-key' },
+      },
+    };
+    const view = modelSettingsView({ config, revision: 1, unreadableSecrets: [] });
+    const ids = view.providers.map(({ id }) => id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const slot = view.slots.find(({ slot }) => slot === 'webFetch')!;
+    expect(slot.serverDefault).toBe('builtin-default-default-default');
+    for (const ref of ['builtin-default', slot.serverDefault as string]) {
+      const next = await applyModelSettingsChange(config, {
+        kind: 'slots',
+        set: { webFetch: ref },
+      });
+      expect(next.slots?.webFetch).toBe(ref);
+    }
+    await expect(
+      applyModelSettingsChange(config, {
+        kind: 'slots',
+        set: { webFetch: 'builtin-default-default' },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_ASSIGNMENT' });
+  });
+
+  it('roundtrips the settings default reference through YAML', async () => {
+    const providers = {
+      builtin: { preset: 'firecrawl' },
+      'builtin-default': { preset: 'firecrawl' },
+    };
+    deployment({ providers });
+    const ref = modelSettingsView(null).slots.find(
+      ({ slot }) => slot === 'webFetch',
+    )!.serverDefault;
+    const { parseModelConfig } = await import('@/lib/server/model-config/openmaic-yml');
+    const { resolveSlot } = await import('@/lib/server/model-config/resolve-slot');
+    const config = parseModelConfig(yaml.dump({ providers, slots: { webFetch: ref } }));
+    expect(resolveSlot('webFetch', [{ source: 'deployment', config }])).toMatchObject({
+      registryId: 'builtin',
+      providerId: ref,
+    });
+  });
+
+  it.each(['builtin-default', 'builtin-default-default'])(
+    'preserves implicit assignment intent when adding and removing %s',
+    async (id) => {
+      const providers = Object.fromEntries(
+        ['builtin', 'builtin-default', 'builtin-default-default']
+          .slice(0, ['builtin', 'builtin-default', 'builtin-default-default'].indexOf(id))
+          .map((key) => [key, { preset: 'firecrawl' }]),
+      );
+      deployment({ providers });
+      const current = { slots: { webFetch: { model: id } } };
+      const next = await applyModelSettingsChange(current, {
+        kind: 'provider',
+        id,
+        preset: 'firecrawl',
+        apiKey: 'own-key',
+      });
+      expect(next.providers?.[id]).toMatchObject({ preset: 'firecrawl', apiKey: 'own-key' });
+      expect(next.slots?.webFetch).toEqual({ model: `${id}-default` });
+      const removed = await applyModelSettingsChange(next, { kind: 'remove-provider', id });
+      expect(removed.slots?.webFetch).toEqual({ model: id });
+    },
+  );
+
+  it('rebases string implicit choices but keeps null and unset assignment intent', async () => {
+    deployment({ providers: { builtin: { preset: 'firecrawl' } } });
+    const cases: NonNullable<ModelConfigLayer['config']['slots']>[] = [
+      { webFetch: 'builtin-default' },
+      { webFetch: null },
+      {},
+    ];
+    for (const slots of cases) {
+      const next = await applyModelSettingsChange(
+        { slots },
+        { kind: 'provider', id: 'builtin-default', preset: 'firecrawl' },
+      );
+      expect(next.slots?.webFetch).toBe(
+        slots.webFetch === 'builtin-default' ? 'builtin-default-default' : slots.webFetch,
+      );
+    }
+    const removed = await applyModelSettingsChange(
+      {
+        providers: { 'builtin-default': { preset: 'firecrawl' } },
+        slots: { webFetch: 'builtin-default' },
+      },
+      { kind: 'remove-provider', id: 'builtin-default' },
+    );
+    expect(removed.slots).toBeUndefined();
+  });
+
+  it('ignores dormant collision IDs when workspace providers are disallowed', () => {
+    deployment({ providers: { builtin: { preset: 'firecrawl' } }, allowUserKeys: false });
+    const view = modelSettingsView({
+      config: { providers: { 'builtin-default': { preset: 'firecrawl' } } },
+      revision: 1,
+      unreadableSecrets: [],
+    });
+    expect(view.providers.map(({ id }) => id)).toEqual(['builtin', 'builtin-default']);
+    expect(view.slots.find(({ slot }) => slot === 'webFetch')!.effective).toMatchObject({
+      providerId: 'builtin-default',
+      registryId: 'builtin',
+    });
+  });
+
+  it('does not rewrite stored explicit provider assignments when editing a collision', async () => {
+    deployment({ providers: { builtin: { preset: 'firecrawl' } } });
+    const current = {
+      providers: { 'builtin-default': { preset: 'firecrawl', apiKey: 'old-key' } },
+      slots: { webFetch: 'builtin-default' },
+    };
+    const next = await applyModelSettingsChange(current, {
+      kind: 'provider',
+      id: 'builtin-default',
+      preset: 'firecrawl',
+      apiKey: 'new-key',
+    });
+    expect(next.slots).toEqual(current.slots);
+    expect(
+      modelSettingsView({ config: next, revision: 1, unreadableSecrets: [] }).slots.find(
+        ({ slot }) => slot === 'webFetch',
+      )!.effective,
+    ).toMatchObject({ registryId: 'firecrawl', providerSource: 'workspace' });
+  });
+
   it('offers only deployment slot models when the provider has no model list', async () => {
     const config: ModelConfigLayer['config'] = {
       providers: {
@@ -139,7 +307,7 @@ describe('modelSettingsView', () => {
     expect(view.providers.map(({ capabilities: _capabilities, ...rest }) => rest)).toEqual([
       {
         id: 'operator',
-        models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+        models: ['deepseek-v4-pro', 'deepseek-flash'],
         preset: 'deepseek',
         presetName: 'DeepSeek',
         presetKind: 'single',
@@ -152,6 +320,13 @@ describe('modelSettingsView', () => {
         presetKind: 'single',
         source: 'workspace',
         key: { set: true, mask: '…9876' },
+      },
+      {
+        id: 'builtin',
+        preset: 'builtin',
+        presetName: 'Built-in reader',
+        presetKind: 'single',
+        source: 'deployment',
       },
     ]);
     // Each provider lists the models it serves per capability, for the pickers.
@@ -188,6 +363,12 @@ describe('modelSettingsView', () => {
       source: { kind: 'workspace' },
     });
     expect(slot('course.content')).not.toHaveProperty('serverDefault');
+    // Unset, web fetch uses the built-in reader, offered as the server default.
+    expect(slot('webFetch')).toMatchObject({
+      source: { kind: 'default' },
+      serverDefault: 'builtin',
+      effective: { status: 'assigned', providerId: 'builtin' },
+    });
     expect(slot('image')).toMatchObject({ locked: false, source: { kind: 'unconfigured' } });
     expect(slot('agent.title')).toMatchObject({ configOnly: true });
   });
@@ -198,7 +379,7 @@ describe('modelSettingsView', () => {
         operator: {
           preset: 'deepseek',
           apiKey: 'sk-operator-secret-0001',
-          models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+          models: ['deepseek-v4-pro', 'deepseek-flash'],
         },
       },
       slots: { llm: 'operator:deepseek-v4-pro' },
@@ -207,19 +388,19 @@ describe('modelSettingsView', () => {
     const view = modelSettingsView({
       config: {
         providers: { mine: { preset: 'openai', apiKey: 'sk-workspace-secret-9876' } },
-        slots: { llm: 'mine:gpt-5.6', 'course.outline': 'operator:deepseek-v4-flash' },
+        slots: { llm: 'mine:gpt-5.6', 'course.outline': 'operator:deepseek-flash' },
       },
       revision: 2,
       unreadableSecrets: [],
     });
-    expect(view.providers.map((provider) => provider.id)).toEqual(['operator']);
+    expect(view.providers.map((provider) => provider.id)).toEqual(['operator', 'builtin']);
     const slot = (id: string) => view.slots.find((entry) => entry.slot === id)!;
     // The dormant llm choice is neither shown nor used: the server default is.
     expect(slot('llm')).not.toHaveProperty('assignment');
     expect(slot('llm')).toMatchObject({ source: { kind: 'default' } });
     // A choice among the deployment's providers stays.
     expect(slot('course.outline')).toMatchObject({
-      assignment: 'operator:deepseek-v4-flash',
+      assignment: 'operator:deepseek-flash',
       source: { kind: 'workspace' },
     });
   });
@@ -395,13 +576,13 @@ describe('environment configuration through runtime and serialized model setting
     { preset: 'doubao', model: 'doubao-seed-2-1-pro-260628', prefixes: ['DOUBAO'] },
     { preset: 'openrouter', model: 'deepseek/deepseek-v4-pro', prefixes: ['OPENROUTER'] },
     { preset: 'grok', model: 'grok-4.6', prefixes: ['GROK'] },
-    { preset: 'tencent-hunyuan', model: 'hy3-preview', prefixes: ['TENCENT', 'TENCENT_HUNYUAN'] },
+    { preset: 'tencent-hunyuan', model: 'hy3', prefixes: ['TENCENT', 'TENCENT_HUNYUAN'] },
     { preset: 'xiaomi', model: 'mimo-v2.6-pro', prefixes: ['XIAOMI', 'MIMO'] },
     { preset: 'tokendance', model: 'cogevol-base', prefixes: ['TOKENDANCE'] },
     { preset: 'ollama', model: 'llama3.3', prefixes: ['OLLAMA'] },
     { preset: 'lemonade', model: 'Gemma-4-26B-A4B-it-GGUF', prefixes: ['LEMONADE'] },
     { preset: 'openai-compatible', model: 'gpt-5.4-mini', prefixes: [] },
-    { preset: 'volcengine-ark', model: 'doubao-seed-2.1-turbo', prefixes: [] },
+    { preset: 'volcengine-ark', model: 'doubao-seed-2.1-pro', prefixes: [] },
     { preset: 'kimi-coding-plan', model: 'kimi-for-coding', prefixes: [] },
   ];
   const upstream = vi.fn(() => {
@@ -645,7 +826,7 @@ ${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
     },
   );
 
-  type MediaCapability = 'tts' | 'asr' | 'image' | 'video' | 'webSearch' | 'document';
+  type MediaCapability = 'tts' | 'asr' | 'image' | 'video' | 'webSearch' | 'webFetch' | 'document';
   type MediaProvider = {
     preset: string;
     capability: MediaCapability;
@@ -687,8 +868,8 @@ ${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
         [
           ['seedream', 'doubao-seedream-5-0-260128', 'IMAGE_SEEDREAM'],
           ['openai-image', 'gpt-image-2', 'IMAGE_OPENAI'],
-          ['qwen-image', 'qwen-image-2.0-pro', 'IMAGE_QWEN_IMAGE'],
-          ['nano-banana', 'gemini-3.1-flash-image-preview', 'IMAGE_NANO_BANANA'],
+          ['qwen-image', 'qwen-image-3.0', 'IMAGE_QWEN_IMAGE'],
+          ['nano-banana', 'gemini-nano-banana-2.1', 'IMAGE_NANO_BANANA'],
           ['minimax-image', 'image-01', 'IMAGE_MINIMAX'],
           ['grok-image', 'grok-imagine-image', 'IMAGE_GROK'],
           ['glm-image', 'cogview-3-flash', 'IMAGE_GLM'],
@@ -702,7 +883,6 @@ ${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
         [
           ['seedance', 'doubao-seedance-2-0-260128', 'VIDEO_SEEDANCE'],
           ['kling', 'kling-v2-6', 'VIDEO_KLING'],
-          ['veo', 'veo-3.1-fast-generate-preview', 'VIDEO_VEO'],
           ['minimax-video', 'MiniMax-Hailuo-2.3', 'VIDEO_MINIMAX'],
           ['grok-video', 'grok-imagine-video', 'VIDEO_GROK'],
           ['happyhorse', 'happyhorse-1.0-t2v', 'VIDEO_HAPPYHORSE'],
@@ -714,6 +894,7 @@ ${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
         [
           ['tavily', null, 'TAVILY'],
           ['exa', null, 'EXA'],
+          ['firecrawl', null, 'FIRECRAWL'],
           ['bocha', null, 'BOCHA'],
           ['brave', null, 'BRAVE'],
           ['baidu', null, 'BAIDU'],
@@ -721,6 +902,13 @@ ${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
           ['minimax-search', null, 'WEB_SEARCH_MINIMAX'],
           ['doubao-search', null, 'WEB_SEARCH_DOUBAO'],
           ['searxng', null, 'SEARXNG'],
+        ],
+      ],
+      [
+        'webFetch',
+        [
+          ['builtin', null, null],
+          ['firecrawl', null, null],
         ],
       ],
       [
@@ -755,6 +943,11 @@ ${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
       if (model === null) expect(models).toEqual([]);
       else expect(models).toContain(model);
       const registryId = entry.capabilities[capability]!.registryId;
+      if (capability === 'webFetch') {
+        expect(registryId).toBe(preset);
+        expect(prefix).toBeNull();
+        continue;
+      }
       const setting = providerModelsSetting(
         capability === 'document' ? 'pdf' : capability,
         registryId,
@@ -976,7 +1169,7 @@ ${locked ? 'lock: [llm, tts]\nallowUserKeys: false\n' : ''}`,
       },
     });
     expect(view.allowUserKeys).toBe(false);
-    expect(view.providers.map((provider) => provider.id)).toEqual(['study']);
+    expect(view.providers.map((provider) => provider.id)).toEqual(['study', 'builtin']);
     expect(view.presets).toEqual([]);
     expect(view.slots.find((entry) => entry.slot === 'tts')).toMatchObject({
       locked: true,
@@ -1016,7 +1209,7 @@ describe('applyModelSettingsChange', () => {
         operator: {
           preset: 'deepseek',
           apiKey: 'sk-operator-secret-0001',
-          models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+          models: ['deepseek-v4-pro', 'deepseek-flash'],
         },
       },
       slots: { llm: 'operator:deepseek-v4-pro' },
@@ -1030,14 +1223,14 @@ describe('applyModelSettingsChange', () => {
     // Clearing a stale assignment made before the lock is allowed.
     expect(
       await applyModelSettingsChange(
-        { slots: { 'course.outline': 'operator:deepseek-v4-flash', image: null } },
+        { slots: { 'course.outline': 'operator:deepseek-flash', image: null } },
         { kind: 'slots', clear: ['course.outline'] },
       ),
     ).toEqual({ slots: { image: null } });
     await expect(
       applyModelSettingsChange(null, {
         kind: 'slots',
-        set: { 'course.content.slide': 'operator:deepseek-v4-flash' },
+        set: { 'course.content.slide': 'operator:deepseek-flash' },
       }),
     ).rejects.toMatchObject({
       code: 'SLOT_LOCKED',
@@ -1056,13 +1249,13 @@ describe('applyModelSettingsChange', () => {
   it('lets the workspace replace a server default, and reset it by clearing', async () => {
     const changed = await applyModelSettingsChange(null, {
       kind: 'slots',
-      set: { llm: 'operator:deepseek-v4-flash' },
+      set: { llm: 'operator:deepseek-flash' },
     });
     const view = modelSettingsView({ config: changed, revision: 1, unreadableSecrets: [] });
     expect(view.slots.find((slot) => slot.slot === 'llm')).toMatchObject({
       source: { kind: 'workspace' },
       serverDefault: 'operator:deepseek-v4-pro',
-      effective: { modelId: 'deepseek-v4-flash' },
+      effective: { modelId: 'deepseek-flash' },
     });
     const reset = await applyModelSettingsChange(changed, { kind: 'slots', clear: ['llm'] });
     expect(reset).toEqual({});
@@ -1071,13 +1264,13 @@ describe('applyModelSettingsChange', () => {
   it('assigns, turns off and clears slots, over deployment providers too', async () => {
     const next = await applyModelSettingsChange(null, {
       kind: 'slots',
-      set: { 'course.outline': 'operator:deepseek-v4-flash', image: null },
+      set: { 'course.outline': 'operator:deepseek-flash', image: null },
     });
     expect(next).toEqual({
-      slots: { 'course.outline': 'operator:deepseek-v4-flash', image: null },
+      slots: { 'course.outline': 'operator:deepseek-flash', image: null },
     });
     expect(await applyModelSettingsChange(next, { kind: 'slots', clear: ['image'] })).toEqual({
-      slots: { 'course.outline': 'operator:deepseek-v4-flash' },
+      slots: { 'course.outline': 'operator:deepseek-flash' },
     });
   });
 
@@ -1086,9 +1279,9 @@ describe('applyModelSettingsChange', () => {
       applyModelSettingsChange(null, {
         kind: 'slots',
         set: {
-          'course.outline': 'operator:deepseek-v4-flash',
+          'course.outline': 'operator:deepseek-flash',
           agent: {
-            model: 'operator:deepseek-v4-flash',
+            model: 'operator:deepseek-flash',
             thinking: { mode: 'enabled', effort: 'high' },
           },
         },
@@ -1102,8 +1295,8 @@ describe('applyModelSettingsChange', () => {
       await applyModelSettingsChange(null, {
         kind: 'slots',
         set: {
-          classroom: { model: 'operator:deepseek-v4-flash', thinking: { effort: 'high' } },
-          agent: { model: 'operator:deepseek-v4-flash', thinking: { mode: 'enabled' } },
+          classroom: { model: 'operator:deepseek-flash', thinking: { effort: 'high' } },
+          agent: { model: 'operator:deepseek-flash', thinking: { mode: 'enabled' } },
         },
       }),
     ).toMatchObject({ slots: { agent: { thinking: { mode: 'enabled' } } } });
@@ -1381,7 +1574,7 @@ describe('applyModelSettingsChange', () => {
     });
     config = await applyModelSettingsChange(config, {
       kind: 'slots',
-      set: { llm: 'ds:deepseek-v4-pro', 'course.content.slide': 'ds:deepseek-v4-flash' },
+      set: { llm: 'ds:deepseek-v4-pro', 'course.content.slide': 'ds:deepseek-flash' },
     });
     config = await applyModelSettingsChange(config, {
       kind: 'provider',

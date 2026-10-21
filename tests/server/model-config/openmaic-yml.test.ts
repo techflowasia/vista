@@ -45,6 +45,29 @@ allowUserKeys: false
 `;
 
 describe('parseModelConfig', () => {
+  it.each([
+    ['', 'builtin'],
+    ['  builtin: { preset: firecrawl }\n', 'builtin-default'],
+    [
+      '  builtin: { preset: firecrawl }\n  builtin-default: { preset: firecrawl }\n',
+      'builtin-default-default',
+    ],
+  ])('accepts the collision-adjusted implicit reader for providers %s', (providers, ref) => {
+    const text = `${providers ? `providers:\n${providers}` : ''}slots:\n  webFetch: ${ref}\n`;
+    expect(parseModelConfig(text).slots?.webFetch).toBe(ref);
+  });
+
+  it('keeps explicit providers authoritative for builtin and suffixed references', () => {
+    for (const id of ['builtin', 'builtin-default']) {
+      expect(
+        issuesOf(`providers:\n  ${id}: { preset: tavily }\nslots:\n  webFetch: ${id}\n`),
+      ).toEqual([`slots.webFetch: provider "${id}" (preset "tavily") does not offer webFetch`]);
+    }
+    expect(issuesOf('slots:\n  webFetch: builtin-default\n')).toEqual([
+      'slots.webFetch: provider "builtin-default" is not declared under providers',
+    ]);
+  });
+
   it('accepts the RFC example and interpolates secrets', () => {
     const config = parseModelConfig(EXAMPLE, { env });
     expect(config.providers?.minimax.apiKey).toBe('sk-test');
@@ -106,6 +129,21 @@ describe('parseModelConfig', () => {
     ]);
   });
 
+  it('keeps loading a provider whose preset was retired (veo) and the slots naming it', () => {
+    // Google shut down the Veo provider's last models (#1940). A file written
+    // for an earlier version must not stop the server; the deployment layer
+    // leaves the provider unused and says so.
+    expect(
+      parseModelConfig(
+        'providers:\n  veo:\n    preset: veo\n    apiKey: k\nslots:\n  video: veo:veo-3.1-generate-preview\n',
+        { env },
+      ),
+    ).toEqual({
+      providers: { veo: { preset: 'veo', apiKey: 'k' } },
+      slots: { video: 'veo:veo-3.1-generate-preview' },
+    });
+  });
+
   it('refuses an OpenAI-compatible provider without a base URL', () => {
     expect(issuesOf('providers:\n  local:\n    preset: openai-compatible\n')).toEqual([
       'providers.local.baseUrl: preset "openai-compatible" needs a baseUrl',
@@ -132,7 +170,7 @@ describe('parseModelConfig', () => {
 
   it('refuses a fallback on every slot whose calls never use one', () => {
     const base = 'providers:\n  m:\n    preset: minimax\n    apiKey: k\nslots:\n';
-    for (const slot of ['tts', 'asr', 'image', 'video', 'webSearch', 'document']) {
+    for (const slot of ['tts', 'asr', 'image', 'video', 'webSearch', 'webFetch', 'document']) {
       expect(issuesOf(`${base}  ${slot}:\n    model: m\n    fallback: m\n`)).toContain(
         `slots.${slot}.fallback: only language model slots use a fallback`,
       );
