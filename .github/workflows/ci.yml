@@ -18,6 +18,7 @@ on:
     branches:
       [
         main,
+        develop,
         runtime-server-backend,
         integration/kv-asset-server-backend,
         integration/agent-workbench,
