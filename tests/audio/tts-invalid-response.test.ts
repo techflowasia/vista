@@ -116,7 +116,9 @@ describe('TTS Provider Response Validation (#1395)', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      headers: { get: (name: string) => (name === 'content-type' ? 'audio/pcm;rate=24000;channels=1' : null) },
+      headers: {
+        get: (name: string) => (name === 'content-type' ? 'audio/pcm;rate=24000;channels=1' : null),
+      },
       arrayBuffer: async () => pcm.buffer,
     });
 
