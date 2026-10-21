@@ -59,6 +59,7 @@ import {
   findAssignment,
   lockingNode,
   resolveSlot,
+  resolveModelReference,
   SlotResolutionError,
   type ModelConfigLayer,
   type ResolvedModelTarget,
@@ -673,6 +674,32 @@ export async function applyModelSettingsChange(
   };
   const slots = (next.slots ??= {}) as Record<string, SlotAssignment>;
   const providers = (next.providers ??= {});
+  const previousLayers = [
+    ...(deployment ? [deployment] : []),
+    { source: 'workspace' as const, config: current ?? {} },
+  ];
+  const implicitAssignments = Object.entries(current?.slots ?? {}).filter(([slot, assignment]) => {
+    if (
+      change.kind === 'slots' ||
+      !isSlotId(slot) ||
+      getSlot(slot).capability !== 'webFetch' ||
+      !assignment
+    )
+      return false;
+    const ref = typeof assignment === 'string' ? assignment : assignment.model;
+    if (
+      previousLayers.some((layer) => Object.hasOwn(layer.config.providers ?? {}, ref.split(':')[0]))
+    )
+      return false;
+    try {
+      return (
+        resolveModelReference(ref, 'webFetch', previousLayers).registryId ===
+        DEFAULT_WEB_FETCH_PROVIDER.id
+      );
+    } catch {
+      return false;
+    }
+  });
 
   if (change.kind === 'slots') {
     // Without user keys, an assignment may not name a provider the workspace
@@ -785,6 +812,17 @@ export async function applyModelSettingsChange(
     delete providers[change.id];
     // Assignments that named it lose it and follow their parents again.
     dropAssignmentsNaming(slots, change.id);
+  }
+
+  if (implicitAssignments.length) {
+    const implicitId = defaultWebFetchProviderId([
+      ...(deployment ? [deployment] : []),
+      { source: 'workspace', config: next },
+    ]);
+    for (const [slot, assignment] of implicitAssignments) {
+      slots[slot] =
+        typeof assignment === 'string' ? implicitId : { ...assignment!, model: implicitId };
+    }
   }
 
   if (!Object.keys(slots).length) delete next.slots;
