@@ -583,6 +583,7 @@ async function retireRuntimeCandidates(
   candidateIds: string[],
   successor: ChatSession,
   successorRuntimeId: string,
+  deletedRuntimeIds: Set<string>,
 ): Promise<void> {
   const ids = new Set(candidateIds);
   if (ids.size === 0) return;
@@ -607,7 +608,11 @@ async function retireRuntimeCandidates(
       ) {
         return [];
       }
-      return [store.deleteSession(view.runtimeSession.id)];
+      return [
+        store.deleteSession(view.runtimeSession.id).then(() => {
+          deletedRuntimeIds.add(view.runtimeSession.id);
+        }),
+      ];
     }),
   );
 }
@@ -621,6 +626,7 @@ async function syncOne(
   isolatedWrites: boolean,
   observed: ChatSession | undefined,
   sleep: ChatSyncSleep,
+  deletedRuntimeIds: Set<string>,
 ): Promise<string> {
   let desired = normalizeSession(session);
   let views = existingViews;
@@ -693,6 +699,7 @@ async function syncOne(
           plan.retired.map((candidate) => candidate.runtimeSession.id),
           desired,
           destinationId,
+          deletedRuntimeIds,
         );
         return destinationId;
       }
@@ -728,6 +735,7 @@ async function syncOne(
             plan.candidates.map((candidate) => candidate.runtimeSession.id),
             desired,
             runtimeId,
+            deletedRuntimeIds,
           );
           return runtimeSession.id;
         } catch (error) {
@@ -859,9 +867,10 @@ async function syncSessions(
   observed: ReadonlyMap<string, ChatSession> = new Map(),
   existingViews?: ChatRuntimeView[],
   sleep: ChatSyncSleep = defaultChatSyncSleep,
-): Promise<ChatSession[]> {
+): Promise<void> {
   const existing = existingViews ?? (await runtimeViews(store, stageId, learnerKey));
   const desiredRuntimeIds = new Map<string, string>();
+  const deletedRuntimeIds = new Set<string>();
 
   for (const session of sessions) {
     desiredRuntimeIds.set(
@@ -875,6 +884,7 @@ async function syncSessions(
         isolatedWrites,
         observed.get(session.id),
         sleep,
+        deletedRuntimeIds,
       ),
     );
   }
@@ -894,10 +904,22 @@ async function syncSessions(
         ensureDeletionMarker(store, stageId, learnerKey, chatSessionId, existing),
       ),
     );
+    const cleanupCandidates = existing.filter((view) => {
+      // Retirement already refreshed these candidates and durably deleted them.
+      // Retained candidates still need the fresh cross-tab checks below.
+      if (deletedRuntimeIds.has(view.runtimeSession.id)) return false;
+      const chatSessionId = view.folded.session?.id;
+      if (!chatSessionId) return false;
+      const desiredRuntimeId = desiredRuntimeIds.get(chatSessionId);
+      return desiredRuntimeId
+        ? desiredRuntimeId !== view.runtimeSession.id
+        : knownSessionIds.has(chatSessionId);
+    });
+    if (cleanupCandidates.length === 0) return;
     const afterSync = await runtimeViews(store, stageId, learnerKey);
     const afterSyncById = new Map(afterSync.map((view) => [view.runtimeSession.id, view]));
     await Promise.all(
-      existing.flatMap((view) => {
+      cleanupCandidates.flatMap((view) => {
         const chatSessionId = view.folded.session?.id;
         const desiredRuntimeId = chatSessionId ? desiredRuntimeIds.get(chatSessionId) : undefined;
         const current = afterSyncById.get(view.runtimeSession.id);
@@ -945,7 +967,6 @@ async function syncSessions(
       }),
     );
   }
-  return loadRuntimeSessions(store, stageId, learnerKey);
 }
 
 async function loadRuntimeSessions(
@@ -1208,7 +1229,7 @@ export async function loadChatSessions(
         reportSnapshot(options, loaded, restoreMarker);
         return loaded;
       }
-      const migrated = await syncSessions(
+      await syncSessions(
         resolved.store,
         stageId,
         resolved.learnerKey,
@@ -1220,6 +1241,7 @@ export async function loadChatSessions(
         beforeLoad,
         resolved.sleep,
       );
+      const migrated = await loadRuntimeSessions(resolved.store, stageId, resolved.learnerKey);
       runtimeReadSucceeded = true;
       if (options.observe !== false) {
         rememberObservedIds(

@@ -19,7 +19,8 @@ import { listOwnerLibrary } from '@/lib/persistence/session-material-links';
 import { validateToolArguments } from '@earendil-works/pi-ai';
 import { randomUUID } from 'node:crypto';
 
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
+import { materialPGlite } from '../helpers/material-pglite';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -123,6 +124,7 @@ function request(method: string, path: string, body?: unknown): NextRequest {
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
 describe('material library routes and tools (PGlite)', () => {
+<<<<<<< HEAD
   let db: PGlite | undefined;
   /**
    * The data directory of a database with the whole schema, booted once for
@@ -133,11 +135,15 @@ describe('material library routes and tools (PGlite)', () => {
    * directory, at about a third of the cost.
    */
   let schemaDir: File | Blob | undefined;
+=======
+  const database = materialPGlite();
+>>>>>>> abb5b53c (cherry-pick(39a0d155): fix(editor): keep legacy narration markers stable across edits (#1953))
 
   async function harnessOn(database: PGlite): Promise<LibraryHarness> {
     vi.stubEnv('ASSET_S3_BUCKET', '');
     const databaseUrl = `postgres://library-routes-${randomUUID()}`;
     vi.stubEnv('DATABASE_URL', databaseUrl);
+<<<<<<< HEAD
     return bootLibraryHarness(new PGlitePool(database), databaseUrl);
   }
 
@@ -157,15 +163,17 @@ describe('material library routes and tools (PGlite)', () => {
     // Bootstraps again for this test's provider: on the loaded schema that
     // only confirms what is there.
     return harnessOn(db);
+=======
+    return bootLibraryHarness(new PGlitePool(database()), databaseUrl);
+>>>>>>> abb5b53c (cherry-pick(39a0d155): fix(editor): keep legacy narration markers stable across edits (#1953))
   }
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.unstubAllEnvs();
     mocks.runtimeConfigured = true;
     mocks.ownerId = ACCOUNT;
     mocks.invalidCredential = false;
-    await db?.close();
-    db = undefined;
+    setMaterialByteStoreForTests(null);
   });
 
   it('includes old classic uploads, reads/searches their results, and preserves classic retry results across entry points', async () => {
