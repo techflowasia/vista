@@ -148,12 +148,17 @@ describe('run event streams', () => {
     });
     const reader = stream.getReader();
     const decoder = new TextDecoder();
-    let text = '';
-    while (!text.includes(`id: ${total}\n`)) {
-      const { value } = await reader.read();
-      text += decoder.decode(value, { stream: true });
+    const chunks: string[] = [];
+    while (true) {
+      const { value, done } = await reader.read();
+      expect(done).toBe(false);
+      const chunk = decoder.decode(value, { stream: true });
+      chunks.push(chunk);
+      // Each stream chunk is a complete frame; don't rescan the growing log.
+      if (chunk.includes(`id: ${total}\n`)) break;
     }
     await reader.cancel();
-    expect([...text.matchAll(/^id: (\d+)$/gm)]).toHaveLength(total);
+    const ids = [...chunks.join('').matchAll(/^id: (\d+)$/gm)].map((match) => Number(match[1]));
+    expect(ids).toEqual(Array.from({ length: total }, (_, index) => index + 1));
   });
 });

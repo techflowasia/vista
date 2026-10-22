@@ -4,7 +4,8 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
+import { materialPGlite } from '../helpers/material-pglite';
 import { afterEach, describe, it, vi } from 'vitest';
 
 import {
@@ -57,22 +58,18 @@ class PGlitePool implements ExtractionScenarioPool {
 }
 
 describe('owner-level material extraction (PGlite)', () => {
-  let db: PGlite | undefined;
+  const database = materialPGlite();
 
   async function boot(env: Record<string, string> = {}): Promise<ExtractionHarness> {
     vi.stubEnv('ASSET_S3_BUCKET', '');
     for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
     const databaseUrl = `postgres://owner-extraction-${randomUUID()}`;
     vi.stubEnv('DATABASE_URL', databaseUrl);
-    db = new PGlite();
-    await db.waitReady;
-    return bootExtractionHarness(new PGlitePool(db), databaseUrl);
+    return bootExtractionHarness(new PGlitePool(database()), databaseUrl);
   }
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.unstubAllEnvs();
-    await db?.close();
-    db = undefined;
   });
 
   it('starts idle and failed sources once and leaves pending, running and done ones alone', async () => {

@@ -33,7 +33,7 @@ export default defineConfig({
     // (e2e/fixtures/server-seed.ts), each under a fresh id.
     command: process.env.CI ? 'pnpm start' : 'pnpm dev',
     url: 'http://localhost:3002',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env.CI || process.env.E2E_REUSE_EXISTING_SERVER === 'true',
     timeout: 120_000,
     // Enable the MAIC Editor (Pro mode) so editor e2e can reach it. This is a
     // build-time NEXT_PUBLIC_* flag: in CI it must be set on the dedicated
@@ -42,6 +42,8 @@ export default defineConfig({
       PORT: '3002',
       NEXT_PUBLIC_MAIC_EDITOR_ENABLED: 'true',
       NEXT_PUBLIC_COURSEWARE_REFERENCE_ENABLED: 'true',
+      ACCESS_CODE: '',
+      COOKIE_SECURE: '0',
     },
   },
 });

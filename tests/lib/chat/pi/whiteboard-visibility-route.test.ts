@@ -19,24 +19,31 @@ function request(
 }
 
 describe('whiteboard visibility callback route', () => {
-  beforeEach(() => vi.stubEnv('PERSISTENCE_SHARED_OWNER_ID', ''));
+  beforeEach(() => {
+    vi.stubEnv('PERSISTENCE_SHARED_OWNER_ID', '');
+    // Route compilation/import time must not consume a pending query's lifetime.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  });
   afterEach(async () => {
     const { resetOwnerAuthenticationForTests } = await import('@/lib/server/identity/registry');
     resetOwnerAuthenticationForTests();
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it('does not let malformed, foreign, or mismatched callbacks settle the owner', async () => {
-    let queryId = '';
+    let dispatched!: (queryId: string) => void;
+    const dispatch = new Promise<string>((resolve) => {
+      dispatched = resolve;
+    });
     const pending = queryWhiteboardVisibility({
       stageId: 'stage-1',
       learnerKey: OWNER,
       timeoutMs: 1_000,
-      dispatch: async (id) => {
-        queryId = id;
-      },
+      dispatch: async (id) => dispatched(id),
     });
-    await vi.waitFor(() => expect(queryId).not.toBe(''));
+    const queryId = await dispatch;
+    expect(queryId).not.toBe('');
     const { POST } = await import('@/app/api/chat/pi/whiteboard-visibility/route');
 
     // Another owner naming this owner's learner key the way the old header did.
@@ -62,6 +69,28 @@ describe('whiteboard visibility callback route', () => {
       204,
     );
     await expect(pending).resolves.toBe('open');
+  });
+
+  it('rejects an owner callback after the query expires', async () => {
+    const { POST } = await import('@/app/api/chat/pi/whiteboard-visibility/route');
+    let dispatched!: (queryId: string) => void;
+    const dispatch = new Promise<string>((resolve) => {
+      dispatched = resolve;
+    });
+    const pending = queryWhiteboardVisibility({
+      stageId: 'stage-1',
+      learnerKey: OWNER,
+      timeoutMs: 1_000,
+      dispatch: async (id) => dispatched(id),
+    });
+    const queryId = await dispatch;
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(pending).resolves.toBe('unknown');
+    expect((await POST(request({ queryId, stageId: 'stage-1', visibility: 'open' }))).status).toBe(
+      404,
+    );
   });
 
   it('answers 401 for a credential an owner auth method rejects', async () => {

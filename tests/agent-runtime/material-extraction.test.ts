@@ -1,5 +1,5 @@
-import { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { materialPGlite } from '../helpers/material-pglite';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import {
   PgAgentSessionStore,
@@ -45,11 +45,7 @@ function mediaProvider(
 }
 
 describe('uploaded material extraction lifecycle', () => {
-  let db: PGlite | undefined;
-
-  afterEach(async () => {
-    await db?.close();
-  });
+  const database = materialPGlite();
 
   it('decodes both legacy raw-base64 and data-URL media assets identically', () => {
     const encoded = Buffer.from('prepared-webp').toString('base64');
@@ -78,8 +74,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('uploads a source, extracts it through the registry, and reads the extracted text', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -128,8 +123,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('settles a rejected extractor as failed with its reason', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -157,8 +151,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('requeues an extractor failure with a concrete transient signal', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -186,8 +179,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('persists a media transcript and prepared images through the asset registry', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -241,8 +233,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('retries a transient ASR failure and permanently fails a rejected ASR request', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -306,8 +297,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('fails cleanly with both media enablement paths when no provider is available', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {

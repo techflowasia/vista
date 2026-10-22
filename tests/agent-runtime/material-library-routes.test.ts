@@ -19,7 +19,8 @@ import { listOwnerLibrary } from '@/lib/persistence/session-material-links';
 import { validateToolArguments } from '@earendil-works/pi-ai';
 import { randomUUID } from 'node:crypto';
 
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
+import { materialPGlite } from '../helpers/material-pglite';
 import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -123,24 +124,21 @@ function request(method: string, path: string, body?: unknown): NextRequest {
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
 describe('material library routes and tools (PGlite)', () => {
-  let db: PGlite | undefined;
+  const database = materialPGlite();
 
   async function boot(): Promise<LibraryHarness> {
     vi.stubEnv('ASSET_S3_BUCKET', '');
     const databaseUrl = `postgres://library-routes-${randomUUID()}`;
     vi.stubEnv('DATABASE_URL', databaseUrl);
-    db = new PGlite();
-    await db.waitReady;
-    return bootLibraryHarness(new PGlitePool(db), databaseUrl);
+    return bootLibraryHarness(new PGlitePool(database()), databaseUrl);
   }
 
-  afterEach(async () => {
+  afterEach(() => {
     vi.unstubAllEnvs();
     mocks.runtimeConfigured = true;
     mocks.ownerId = ACCOUNT;
     mocks.invalidCredential = false;
-    await db?.close();
-    db = undefined;
+    setMaterialByteStoreForTests(null);
   });
 
   it('includes old classic uploads, reads/searches their results, and preserves classic retry results across entry points', async () => {

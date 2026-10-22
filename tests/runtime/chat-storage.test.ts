@@ -505,7 +505,58 @@ describe('chat RuntimeStore cutover', () => {
       legacyStore,
     });
 
-    expect(listRecordCalls).toBe(6);
+    expect(listRecordCalls).toBe(2);
+  });
+
+  it('does not reread a changed fallback save for a discarded projection', async () => {
+    vi.stubGlobal('navigator', {});
+    const store = makeRuntimeStore();
+    const options = { store, learnerKey: LEARNER_KEY };
+    await saveChatSessions(STAGE_ID, [session()], options);
+    const listSessions = vi.spyOn(store, 'listSessions');
+    const listRecords = vi.spyOn(store, 'listRecords');
+    const updated = session({ title: 'Changed title', updatedAt: 2_000 });
+
+    await expect(saveChatSessions(STAGE_ID, [updated], options)).resolves.toBeUndefined();
+
+    expect(listSessions).toHaveBeenCalledTimes(2);
+    expect(listRecords).toHaveBeenCalledTimes(3);
+    await expect(loadChatSessions(STAGE_ID, options)).resolves.toEqual([
+      { ...updated, status: 'interrupted', pendingToolCalls: [] },
+    ]);
+  });
+
+  it('refreshes cleanup candidates retained by a newer cross-tab state', async () => {
+    vi.stubGlobal('navigator', {});
+    const store = makeRuntimeStore();
+    const options = { store, learnerKey: LEARNER_KEY };
+    await saveChatSessions(STAGE_ID, [session()], options);
+    const [original] = await store.listSessions(STAGE_ID, LEARNER_KEY);
+    const newer = session({ title: 'Concurrent newer state', updatedAt: 4_000 });
+    const setSessionStatus = store.setSessionStatus.bind(store);
+    vi.spyOn(store, 'setSessionStatus').mockImplementationOnce(async (...args) => {
+      // Another writer commits after the save's initial snapshot but before
+      // retirement completes the original generation.
+      await store.appendRecord(
+        buildChatRecordInit(original!.id, statePayload(newer), newer, 'concurrent-state'),
+      );
+      return setSessionStatus(...args);
+    });
+    const listSessions = vi.spyOn(store, 'listSessions');
+
+    await saveChatSessions(
+      STAGE_ID,
+      [session({ title: 'Local older edit', updatedAt: 2_000 })],
+      options,
+    );
+
+    // A retained candidate is not a successful deletion: final cleanup must
+    // still refresh it rather than reusing the retirement snapshot.
+    expect(listSessions).toHaveBeenCalledTimes(3);
+    await expect(store.getSession(original!.id)).resolves.toMatchObject({ status: 'completed' });
+    await expect(loadChatSessions(STAGE_ID, options)).resolves.toMatchObject([
+      { title: newer.title, updatedAt: newer.updatedAt },
+    ]);
   });
 
   it('recovers when another tab wins the deterministic session create race', async () => {
@@ -614,11 +665,15 @@ describe('chat RuntimeStore cutover', () => {
   });
 
   it('bounds stored and scanned records across a long-lived chat session', async () => {
+    vi.stubGlobal('navigator', {});
     const store = makeRuntimeStore();
     const legacyStore = new MemoryLegacyChatStore();
     const listRecords = store.listRecords.bind(store);
     let maxRecordsRead = 0;
+    let recordReadCount = 0;
+    const listSessions = vi.spyOn(store, 'listSessions');
     vi.spyOn(store, 'listRecords').mockImplementation(async (...args) => {
+      recordReadCount += 1;
       const result = await listRecords(...args);
       maxRecordsRead = Math.max(maxRecordsRead, result.length);
       return result;
@@ -632,6 +687,10 @@ describe('chat RuntimeStore cutover', () => {
       );
     }
 
+    // Initial creation needs one scan; each replacement needs only its initial
+    // read and the race-safe retirement refresh, not a duplicate cleanup scan.
+    expect(listSessions).toHaveBeenCalledTimes(1 + 299 * 2);
+    expect(recordReadCount).toBe(299 * 3);
     const runtimeSessions = (await store.listSessions(STAGE_ID, LEARNER_KEY)).filter(
       (candidate) => candidate.kind === 'chat',
     );

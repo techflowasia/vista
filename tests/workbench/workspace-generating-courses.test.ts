@@ -14,8 +14,10 @@
 
 import { act, createElement, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+// Load the rail's dependency graph before timed tests, not during the first render.
+import { WorkspaceRail } from '@/components/workbench/workspace/WorkspaceRail';
 import type { RunSnapshot } from '@/lib/generation-run-client/types';
 import { orderCourseMentionCandidates } from '@/lib/workbench/course-mention';
 import { RAIL_TAB_STORAGE_KEY } from '@/lib/workbench/workspace-rail-tab';
@@ -43,11 +45,8 @@ vi.mock('@/lib/utils/stage-storage', () => ({
 
 const roots: Root[] = [];
 
-(
-  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
 beforeAll(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   if (!globalThis.PointerEvent) vi.stubGlobal('PointerEvent', MouseEvent);
   vi.stubGlobal(
     'ResizeObserver',
@@ -59,8 +58,12 @@ beforeAll(() => {
   );
 });
 
-afterEach(() => {
-  for (const root of roots.splice(0)) act(() => root.unmount());
+afterAll(() => vi.unstubAllGlobals());
+
+afterEach(async () => {
+  await act(async () => {
+    for (const root of roots.splice(0)) root.unmount();
+  });
   document.body.replaceChildren();
   window.localStorage.clear();
   vi.restoreAllMocks();
@@ -103,7 +106,6 @@ interface RailState {
 const DEFAULT_CLASSROOMS = [course(GENERATING, '劳动节小课', 2), course(READY, '随笔写作入门', 8)];
 
 async function renderRail(courseRuns: ReadonlyMap<string, RunSnapshot>, initial: RailState = {}) {
-  const { WorkspaceRail } = await import('@/components/workbench/workspace/WorkspaceRail');
   window.localStorage.setItem(RAIL_TAB_STORAGE_KEY, 'courses');
   const onOpenCourse = vi.fn();
   const onDiscardRun = vi.fn();

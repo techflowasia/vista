@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetStageRealmPresenceForTesting,
   bindStageRealmPresence,
@@ -21,7 +21,12 @@ function peerHoldingStage(stageId: string): BroadcastChannel {
 }
 
 describe('stage realm presence', () => {
-  afterEach(() => __resetStageRealmPresenceForTesting());
+  // Keep native channel delivery independent of the probe's deadline under load.
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }));
+  afterEach(() => {
+    __resetStageRealmPresenceForTesting();
+    vi.useRealTimers();
+  });
 
   it('reports a peer that has the same stage open', async () => {
     bindStageRealmPresence(() => 'stage-1');
@@ -39,7 +44,9 @@ describe('stage realm presence', () => {
     const peer = peerHoldingStage('stage-other');
 
     try {
-      expect(await probeStageRealmPresence('stage-1')).toBe('absent');
+      const pending = probeStageRealmPresence('stage-1');
+      await vi.runAllTimersAsync();
+      expect(await pending).toBe('absent');
     } finally {
       peer.close();
     }
@@ -48,7 +55,9 @@ describe('stage realm presence', () => {
   it('reports no peer when nobody answers', async () => {
     bindStageRealmPresence(() => 'stage-1');
 
-    expect(await probeStageRealmPresence('stage-1')).toBe('absent');
+    const pending = probeStageRealmPresence('stage-1');
+    await vi.runAllTimersAsync();
+    expect(await pending).toBe('absent');
   });
 
   it('reports unknown when the environment has no BroadcastChannel', async () => {
