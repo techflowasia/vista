@@ -3,6 +3,8 @@ import { PROVIDER_PRESETS } from '@/lib/config/provider-presets';
 import { parseModelConfig } from '@/lib/server/model-config/openmaic-yml';
 import {
   SlotResolutionError,
+  defaultWebFetchProviderId,
+  resolveModelReference,
   resolveSlot,
   type ModelConfigLayer,
 } from '@/lib/server/model-config/resolve-slot';
@@ -34,6 +36,135 @@ slots:
 );
 
 describe('resolveSlot', () => {
+  it('allocates the implicit reader across all layers without intercepting explicit providers', () => {
+    const server = layer(
+      'deployment',
+      'providers:\n  builtin:\n    preset: firecrawl\n    apiKey: server-key\n',
+    );
+    const workspace: ModelConfigLayer = {
+      source: 'workspace',
+      config: {
+        providers: {
+          'builtin-default': { preset: 'firecrawl', apiKey: 'workspace-key' },
+          'builtin-default-default': { preset: 'tavily', apiKey: 'search-key' },
+        },
+        slots: { webFetch: 'builtin-default' },
+      },
+    };
+    for (const layers of [
+      [server, workspace],
+      [workspace, server],
+    ]) {
+      expect(defaultWebFetchProviderId(layers)).toBe('builtin-default-default-default');
+      expect(resolveSlot('webFetch', layers)).toMatchObject({
+        providerId: 'builtin-default',
+        registryId: 'firecrawl',
+        providerSource: 'workspace',
+        apiKey: 'workspace-key',
+      });
+      expect(resolveModelReference('builtin', 'webFetch', layers)).toMatchObject({
+        registryId: 'firecrawl',
+        apiKey: 'server-key',
+      });
+      expect(() => resolveModelReference('builtin-default-default', 'webFetch', layers)).toThrow(
+        /does not offer webFetch/,
+      );
+      expect(
+        resolveModelReference(defaultWebFetchProviderId(layers), 'webFetch', layers),
+      ).toMatchObject({ registryId: 'builtin' });
+    }
+  });
+
+  it('keeps generated references within the provider ID grammar after a long collision chain', () => {
+    const providers = Object.fromEntries(
+      Array.from({ length: 8 }, (_, index) => [
+        'builtin' + '-default'.repeat(index),
+        { preset: 'firecrawl' },
+      ]),
+    );
+    providers['builtin-default-1'] = { preset: 'firecrawl' };
+    const config = { providers };
+    const layers: ModelConfigLayer[] = [{ source: 'deployment', config }];
+    const id = defaultWebFetchProviderId(layers);
+    expect(id).toBe('builtin-default-1-default');
+    const parsed = parseModelConfig(JSON.stringify({ ...config, slots: { webFetch: id } }));
+    expect(resolveSlot('webFetch', [{ source: 'deployment', config: parsed }])).toMatchObject({
+      providerId: id,
+      registryId: 'builtin',
+    });
+  });
+
+  it('keeps literal builtin references when only a suffixed workspace provider exists', () => {
+    const workspace: ModelConfigLayer = {
+      source: 'workspace',
+      config: {
+        providers: { 'builtin-default': { preset: 'firecrawl' } },
+        slots: { webFetch: 'builtin' },
+      },
+    };
+    expect(resolveSlot('webFetch', [workspace])).toMatchObject({
+      providerId: 'builtin',
+      registryId: 'builtin',
+    });
+  });
+
+  it('keeps a deployment implicit reference alongside unrelated suffixed workspace providers', () => {
+    const server: ModelConfigLayer = {
+      source: 'deployment',
+      config: {
+        providers: { builtin: { preset: 'firecrawl' } },
+        slots: { webFetch: 'builtin-default' },
+      },
+    };
+    const workspace: ModelConfigLayer = {
+      source: 'workspace',
+      config: { providers: { 'builtin-default-default': { preset: 'firecrawl' } } },
+    };
+    expect(resolveSlot('webFetch', [server, workspace])).toMatchObject({ registryId: 'builtin' });
+  });
+
+  it.each([true, false])(
+    'protects deployment implicit suffixed assignments with locked=%s',
+    (locked) => {
+      const server: ModelConfigLayer = {
+        source: 'deployment',
+        config: {
+          providers: { builtin: { preset: 'firecrawl', apiKey: 'server-key' } },
+          slots: { webFetch: { model: 'builtin-default' } },
+          ...(locked ? { lock: ['webFetch'] } : {}),
+        },
+      };
+      const workspace: ModelConfigLayer = {
+        source: 'workspace',
+        config: { providers: { 'builtin-default': { preset: 'firecrawl', apiKey: 'user-key' } } },
+      };
+      for (const layers of [
+        [server, workspace],
+        [workspace, server],
+      ]) {
+        expect(resolveSlot('webFetch', layers)).toMatchObject({
+          registryId: 'builtin',
+          providerId: 'builtin-default-default',
+          providerSource: 'deployment',
+          locked,
+        });
+        expect(resolveSlot('webFetch', layers)).not.toHaveProperty('apiKey');
+        expect(resolveModelReference('builtin-default', 'webFetch', layers)).toMatchObject({
+          registryId: 'firecrawl',
+          providerSource: 'workspace',
+          apiKey: 'user-key',
+        });
+        const selected = {
+          ...workspace,
+          config: { ...workspace.config, slots: { webFetch: 'builtin-default' } },
+        };
+        expect(resolveSlot('webFetch', [server, selected])).toMatchObject({
+          registryId: locked ? 'builtin' : 'firecrawl',
+        });
+      }
+    },
+  );
+
   it('inherits from the nearest assigned ancestor', () => {
     const outline = resolveSlot('course.outline', [deployment]);
     expect(outline).toMatchObject({
@@ -97,7 +228,7 @@ describe('resolveSlot', () => {
   it('lets the workspace replace a server default at a node and follow the rest', () => {
     const workspace = layer(
       'workspace',
-      'providers:\n  own:\n    preset: deepseek\n    apiKey: k\nslots:\n  course.outline: own:deepseek-v4-flash\n',
+      'providers:\n  own:\n    preset: deepseek\n    apiKey: k\nslots:\n  course.outline: own:deepseek-flash\n',
     );
     const layers = [deployment, workspace];
     expect(resolveSlot('llm', layers)).toMatchObject({ source: 'default', providerId: 'mm' });
@@ -105,7 +236,7 @@ describe('resolveSlot', () => {
       source: 'workspace',
       locked: false,
       providerId: 'own',
-      modelId: 'deepseek-v4-flash',
+      modelId: 'deepseek-flash',
     });
     expect(resolveSlot('course.agents', layers)).toMatchObject({
       resolvedAt: 'llm',
@@ -307,6 +438,32 @@ describe('resolveSlot', () => {
     expect(resolved).not.toHaveProperty('modelId');
   });
 
+  it('resolves a Firecrawl web search provider from openmaic.yml', () => {
+    const config = parseModelConfig(
+      'providers:\n  fc:\n    preset: firecrawl\n    apiKey: k\nslots:\n  webSearch: fc\n',
+      { env: {} },
+    );
+    const resolved = resolveSlot('webSearch', [{ source: 'deployment', config }]);
+    expect(resolved).toMatchObject({ status: 'assigned', registryId: 'firecrawl', apiKey: 'k' });
+  });
+
+  it('serves web search and web fetch from one Firecrawl provider', () => {
+    const config = parseModelConfig(
+      'providers:\n  fc:\n    preset: firecrawl\n    apiKey: k\n    baseUrl: https://fc.example.com\nslots:\n  webSearch: fc\n  webFetch: fc\n',
+      { env: {} },
+    );
+    const layers = [{ source: 'deployment' as const, config }];
+    for (const slot of ['webSearch', 'webFetch'] as const) {
+      expect(resolveSlot(slot, layers)).toMatchObject({
+        status: 'assigned',
+        providerId: 'fc',
+        registryId: 'firecrawl',
+        apiKey: 'k',
+        baseUrl: 'https://fc.example.com',
+      });
+    }
+  });
+
   it("resolves a provider-only reference to a token plan's own default model", () => {
     const plan = PROVIDER_PRESETS.find(
       (preset) => preset.kind === 'token-plan' && preset.capabilities.video?.defaultModel,
@@ -363,6 +520,17 @@ describe('resolveSlot', () => {
   });
 });
 
+describe('a provider with a retired preset', () => {
+  it('says why it can no longer be used when it is referenced directly', () => {
+    const layers: ModelConfigLayer[] = [
+      { source: 'workspace', config: { providers: { veo: { preset: 'veo', apiKey: 'k' } } } },
+    ];
+    expect(() => resolveModelReference('veo', 'video', layers, { providerOnly: true })).toThrow(
+      'reference: the provider can no longer be used: the Veo video provider was removed because Google shut down its Veo 3.1 preview models on October 22, 2026',
+    );
+  });
+});
+
 describe('resolveSlot with server defaults and locks', () => {
   const providers = `providers:
   mm:
@@ -380,7 +548,7 @@ describe('resolveSlot with server defaults and locks', () => {
     apiKey: k
 slots:
   llm: ds:deepseek-v4-pro
-  course.content.slide: ds:deepseek-v4-flash
+  course.content.slide: ds:deepseek-flash
   video: mv:MiniMax-Hailuo-2.3
 `,
   );

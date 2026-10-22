@@ -136,7 +136,7 @@ export async function slideToPng(
       root!.render(createElement(SlideCanvas, { slide, chrome: false }));
     });
     // Typeset every inline formula now, root by root: the live renderer
-    // leaves what its per-pass budget does not cover to idle time, after this
+    // leaves what the shared live budget does not cover to idle time, after this
     // capture.
     completeInlineMath(container);
 
@@ -217,7 +217,6 @@ export async function slideToPng(
     await nextFrame();
 
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
       console.debug('[slideToPng] container ready', {
         innerHTMLLength: container.innerHTML.length,
         imgCount: container.querySelectorAll('img').length,
@@ -267,7 +266,6 @@ export async function slideToPng(
       return await toPng(target, nativeOpts);
     } catch (nativeErr) {
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
         console.debug(
           '[slideToPng] native paint unavailable, falling back to html2canvas:',
           nativeErr,

@@ -475,6 +475,7 @@
       "moreActions": "Autres actions",
       "rename": "Renommer",
       "sceneIncomplete": "Le contenu de cette page est incomplet",
+      "sceneHasErrors": "Cette page contient des erreurs",
       "addPage": "Ajouter une page",
       "nextPage": "Page suivante",
       "prevPage": "Page précédente"
@@ -1346,11 +1347,13 @@
       "ollama": "Ollama (local)",
       "tavily": "Tavily",
       "exa": "Exa",
+      "firecrawl": "Firecrawl",
       "bocha": "Bocha",
       "brave": "Brave Search",
       "baidu": "Baidu",
       "claude": "Claude",
-      "searxng": "SearXNG"
+      "searxng": "SearXNG",
+      "builtin": "Lecteur intégré"
     },
     "modelCount": "modèles",
     "modelSingular": "modèle",
@@ -1717,7 +1720,6 @@
     "videoModel": "Modèle de génération de vidéos",
     "providerSeedance": "Seedance (ByteDance)",
     "providerKling": "Kling (Kuaishou)",
-    "providerVeo": "Veo (Google)",
     "providerSora": "Sora (OpenAI)",
     "providerMiniMaxVideo": "MiniMax Video",
     "providerGrokVideo": "Grok Video (xAI)",
@@ -1799,7 +1801,7 @@
     "tokenPlan": {
       "nav": "Forfait de jetons",
       "title": "Configuration du forfait de jetons",
-      "desc": "Choisissez votre fournisseur de forfait de jetons et saisissez la clé : toutes les modalités prises en charge sont configurées automatiquement (LLM, image, vidéo, parole, recherche web).",
+      "desc": "Choisissez votre fournisseur de forfait de jetons et saisissez la clé : toutes les modalités prises en charge sont configurées automatiquement (LLM, image, vidéo, parole, recherche web, récupération web).",
       "selectPlan": "Choisir un fournisseur",
       "apiKey": "Clé d’API",
       "updateKey": "Mettre à jour la clé",
@@ -1825,6 +1827,7 @@
       "capTts": "Synthèse vocale",
       "capVideo": "Génération de vidéo",
       "capWebSearch": "Recherche web",
+      "capWebFetch": "Récupération web",
       "saved": "Paramètres de connexion enregistrés",
       "stageInteractive": "Interactif",
       "stageSlide": "Diapositives",
@@ -1948,7 +1951,8 @@
         "providers": "Configurer les identifiants, points de terminaison et catalogues de modèles des services de modèles de langue",
         "tts": "Configurer les services de synthèse vocale, les voix et les modèles",
         "video": "Configurer les identifiants et catalogues de modèles des services de génération vidéo",
-        "webSearch": "Configurer les services de recherche web et les sources de récupération"
+        "webSearch": "Configurer les services de recherche web et les sources de récupération",
+        "webFetch": "Configurer les services d’extraction de pages web"
       },
       "nav": "Services de modèles",
       "notConfigured": "Non configuré",
@@ -2150,6 +2154,10 @@
         "document": {
           "name": "Analyse de documents",
           "desc": "Lit les documents importés."
+        },
+        "webFetch": {
+          "name": "Récupération web",
+          "desc": "Permet à l’agent de lire les pages web autorisées dans la session."
         }
       },
       "source": {
@@ -2163,6 +2171,7 @@
         "lines": {
           "rewrite": "Requête",
           "search": "Recherche",
+          "fetch": "Lecture",
           "image": "Image",
           "video": "Vidéo"
         }
@@ -2195,7 +2204,11 @@
         "unconfirmed": "Le serveur n'a pas confirmé l'importation."
       }
     },
-    "serverConfiguredAddOwn": "Pour utiliser vos propres identifiants, ajoutez un fournisseur distinct."
+    "serverConfiguredAddOwn": "Pour utiliser vos propres identifiants, ajoutez un fournisseur distinct.",
+    "webFetchSettings": "Récupération web",
+    "webFetchHint": "Choisissez comment lire les pages web. Les services hébergés reçoivent les URL publiques autorisées dans la session. Les résultats restent non fiables et aucun autre lecteur n’est utilisé en cas d’échec.",
+    "webFetchApiKey": "Clé API",
+    "webFetchSharedKeyHint": "Cette clé sert aussi au chat avec ce fournisseur. La modifier ou la supprimer affecte le chat."
   },
   "workspace": {
     "untitledCourse": "未命名课堂",

@@ -79,6 +79,8 @@ export const MINIMAX_TTS_MODELS = [
   { id: 'speech-02-turbo', name: 'Speech 02 Turbo' },
 ] as const;
 
+// Legacy sentinel for saved clone voices, excluded from manual model pickers.
+// Keep voice-driven dispatch compatible until the replacement protocol is supported.
 export const DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL = 'qwen3-tts-vc-2026-01-22';
 /** Client-visible VC model. Server-only overrides are resolved in provider-config. */
 export const QWEN_TTS_VOICE_CLONE_MODEL = DEFAULT_QWEN_TTS_VOICE_CLONE_MODEL;
@@ -259,14 +261,56 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     defaultModelId: 'google/gemini-3.8-flash-lite-tts',
     voices: [
       // Gemini voices
-      { id: 'Kore', name: 'Kore (Gemini)', language: 'th-TH', gender: 'female', description: 'Firm' },
-      { id: 'Puck', name: 'Puck (Gemini)', language: 'th-TH', gender: 'male', description: 'Upbeat' },
-      { id: 'Zephyr', name: 'Zephyr (Gemini)', language: 'th-TH', gender: 'female', description: 'Bright' },
-      { id: 'Charon', name: 'Charon (Gemini)', language: 'th-TH', gender: 'male', description: 'Informative' },
-      { id: 'Fenrir', name: 'Fenrir (Gemini)', language: 'th-TH', gender: 'male', description: 'Excitable' },
-      { id: 'Leda', name: 'Leda (Gemini)', language: 'th-TH', gender: 'female', description: 'Youthful' },
+      {
+        id: 'Kore',
+        name: 'Kore (Gemini)',
+        language: 'th-TH',
+        gender: 'female',
+        description: 'Firm',
+      },
+      {
+        id: 'Puck',
+        name: 'Puck (Gemini)',
+        language: 'th-TH',
+        gender: 'male',
+        description: 'Upbeat',
+      },
+      {
+        id: 'Zephyr',
+        name: 'Zephyr (Gemini)',
+        language: 'th-TH',
+        gender: 'female',
+        description: 'Bright',
+      },
+      {
+        id: 'Charon',
+        name: 'Charon (Gemini)',
+        language: 'th-TH',
+        gender: 'male',
+        description: 'Informative',
+      },
+      {
+        id: 'Fenrir',
+        name: 'Fenrir (Gemini)',
+        language: 'th-TH',
+        gender: 'male',
+        description: 'Excitable',
+      },
+      {
+        id: 'Leda',
+        name: 'Leda (Gemini)',
+        language: 'th-TH',
+        gender: 'female',
+        description: 'Youthful',
+      },
       { id: 'Orus', name: 'Orus (Gemini)', language: 'th-TH', gender: 'male', description: 'Firm' },
-      { id: 'Aoede', name: 'Aoede (Gemini)', language: 'th-TH', gender: 'female', description: 'Breezy' },
+      {
+        id: 'Aoede',
+        name: 'Aoede (Gemini)',
+        language: 'th-TH',
+        gender: 'female',
+        description: 'Breezy',
+      },
       // OpenAI voices
       { id: 'alloy', name: 'Alloy', language: 'en', gender: 'neutral' },
       { id: 'echo', name: 'Echo', language: 'en', gender: 'male' },
@@ -419,8 +463,6 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     excludeFromAgentVoiceCatalog: true,
     models: [
       { id: 'qwen3-tts-flash', name: 'Qwen3 TTS Flash' },
-      { id: 'qwen3-tts-instruct-flash', name: 'Qwen3 TTS Instruct Flash' },
-      { id: 'qwen-tts', name: 'Qwen TTS' },
       { id: QWEN_TTS_VOICE_CLONE_MODEL, name: 'Qwen3 TTS Voice Clone' },
     ],
     defaultModelId: 'qwen3-tts-flash',

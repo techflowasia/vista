@@ -4,6 +4,7 @@ import typescript from '@rollup/plugin-typescript';
 import preserveDirectives from 'rollup-plugin-preserve-directives';
 
 const external = [
+  /^@openmaic\/geometry($|\/)/,
   /^@openmaic\/dsl($|\/)/,
   /^@openmaic\/renderer($|\/)/,
   /^react($|\/)/,
@@ -21,7 +22,7 @@ const onwarn = (warning) => {
   console.warn(`(!) ${warning.message}`);
 };
 
-export default {
+const config = {
   input: {
     'core/index': 'src/core/index.ts',
     'react/index': 'src/react/index.ts',
@@ -49,3 +50,5 @@ export default {
     preserveDirectives(),
   ],
 };
+
+export default config;

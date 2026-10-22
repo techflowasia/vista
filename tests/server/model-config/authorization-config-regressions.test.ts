@@ -15,22 +15,22 @@ beforeEach(() => {
   calls.modelId = '';
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-authorization-'));
   vi.spyOn(process, 'cwd').mockReturnValue(dir);
-  for (const key of [
-    'DATABASE_URL',
-    'OPENMAIC_CONFIG',
-    'DEFAULT_MODEL',
-    'MODEL_FALLBACK',
-    'MODEL_ROUTES',
-    'OLLAMA_API_KEY',
-    'OLLAMA_BASE_URL',
-    'BEDROCK_BASE_URL',
-    'TAVILY_API_KEY',
-    'PDF_MINERU_CLOUD_API_KEY',
-    'WEB_SEARCH_CLAUDE_API_KEY',
-    'TTS_AZURE_API_KEY',
-    'ASR_AZURE_API_KEY',
-  ])
-    vi.stubEnv(key, '');
+  for (const key of Object.keys(process.env)) {
+    if (
+      /(?:_API_KEY|_BASE_URL|_MODELS|_ENABLED|_PROXY)$/.test(key) ||
+      /^(?:AWS_|BEDROCK_|ALIDOCMIND_)/.test(key) ||
+      [
+        'DATABASE_URL',
+        'OPENMAIC_CONFIG',
+        'DEFAULT_MODEL',
+        'DEFAULT_IMAGE_PROVIDER',
+        'MODEL_FALLBACK',
+        'MODEL_ROUTES',
+      ].includes(key)
+    ) {
+      vi.stubEnv(key, '');
+    }
+  }
 });
 afterEach(() => {
   vi.restoreAllMocks();
