@@ -21,7 +21,7 @@ export const STEP_DEADLINES_MS = {
   /** Per attempt. */
   sceneActions: 60_000,
   /** Per clip attempt (POST /api/generate/tts). */
-  narrationClip: 30_000,
+  narrationClip: 60_000,
 } as const;
 
 /** A step ran out of its budget. A gateway timeout to the retries: retried. */
