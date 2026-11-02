@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseActionsFromStructuredOutput, postProcessInteractiveHtml } from '@openmaic/generation';
 
 describe('action parser', () => {
@@ -21,6 +21,22 @@ describe('action parser', () => {
         'quiz',
       ),
     ).toEqual([]);
+  });
+
+  it('drops action types the model invented and keeps the rest', () => {
+    const warn = vi.fn();
+    const actions = parseActionsFromStructuredOutput(
+      '[{"type":"text","content":"Start"},' +
+        '{"type":"action","name":"highlight_text","params":{}},' +
+        '{"type":"action","name":"spotlight","params":{"elementId":"x","type":"zoom"}},' +
+        '{"type":"text","content":"End"}]',
+      'slide',
+      undefined,
+      { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() },
+    );
+    expect(actions.map((action) => action.type)).toEqual(['speech', 'speech']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"highlight_text"'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"zoom"'));
   });
 });
 

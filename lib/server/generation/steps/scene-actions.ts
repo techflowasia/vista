@@ -14,7 +14,6 @@ import {
   type SceneGenerationContext,
   type AgentInfo,
 } from '@openmaic/generation';
-import { isActionType } from '@openmaic/dsl';
 import type {
   SceneOutline,
   GeneratedSlideContent,
@@ -143,28 +142,15 @@ export async function generateSceneActions(
     | GeneratedInteractiveContent
     | GeneratedPBLContent;
 
-  const actionOptions = {
+  // The generator's parser drops action types the model invented and falls
+  // back to default actions when nothing usable is left.
+  const actions = await generateActions(outline, generationContent, aiCall, {
     ctx: generationCtx,
     agents,
     userProfile,
     languageDirective,
-  };
-  const generated = await generateActions(outline, generationContent, aiCall, actionOptions);
-
-  // A model can invent an action type. The run's write boundary rejects a scene
-  // holding one and playback has no way to run it, so one invented action must
-  // not cost the whole scene: drop it and say so.
-  const known = generated.filter((action) => {
-    if (isActionType(action.type)) return true;
-    log.warn(`Dropping generated action with unknown type: ${JSON.stringify(action.type)}`);
-    return false;
+    logger: log,
   });
-  // Nothing usable left is the same as an empty response, which the generator
-  // already answers with its default actions.
-  const actions =
-    generated.length > 0 && known.length === 0
-      ? await generateActions(outline, generationContent, async () => '[]', actionOptions)
-      : known;
 
   log.info(`Generated ${actions.length} actions for: "${outline.title}"`);
 

@@ -324,6 +324,13 @@ describe('scene generation primitives', () => {
     expect(actions.map((action) => action.type)).toEqual(['widget_highlight', 'widget_setState']);
   });
 
+  it('falls back to default actions when every generated action type was invented', async () => {
+    const actions = await generateSceneActions(quizOutline(), { questions: [] }, async () =>
+      JSON.stringify([{ type: 'action', name: 'show_quiz', params: {} }]),
+    );
+    expect(actions).toEqual([expect.objectContaining({ type: 'speech' })]);
+  });
+
   it('generates PBL content with the re-seated single-call planner', async () => {
     const content = await generateSceneContent(pblOutline(), async () => validPBLResponse(), {
       targetLanguage: 'en-US',

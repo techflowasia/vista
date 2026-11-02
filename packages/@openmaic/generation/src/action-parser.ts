@@ -10,7 +10,7 @@
  */
 
 import type { Action, ActionType } from '@openmaic/dsl';
-import { SLIDE_ONLY_ACTIONS } from '@openmaic/dsl';
+import { SLIDE_ONLY_ACTIONS, isActionType } from '@openmaic/dsl';
 import { nanoid } from 'nanoid';
 import { parse as parsePartialJson, Allow } from 'partial-json';
 import { jsonrepair } from 'jsonrepair';
@@ -115,6 +115,13 @@ export function parseActionsFromStructuredOutput(
           type: actionName as Action['type'],
           ...actionParams,
         } as Action;
+        // A model can invent an action type, and params may carry their own
+        // `type`. Persistence rejects a scene holding an unknown type and
+        // playback cannot run it, so drop the item rather than the scene.
+        if (!isActionType(action.type)) {
+          log.warn(`Dropping action with unknown type: ${JSON.stringify(action.type)}`);
+          continue;
+        }
         // `widget_setState.state` is required by the type, but the LLM may omit it.
         // The former TeacherAction→Action converter always defaulted it to `{}`;
         // restore that guard so a missing `state` can't reach the iframe as
