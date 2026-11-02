@@ -45,21 +45,6 @@ vi.mock('@/lib/utils/stage-storage', () => ({
 
 const roots: Root[] = [];
 
-<<<<<<< HEAD
-(
-  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
-// Load the rail once per file, outside any test's time budget: its first import
-// transforms a large module graph, which can take longer than the 5 s test
-// timeout on a loaded CI runner.
-let WorkspaceRail: typeof import('@/components/workbench/workspace/WorkspaceRail').WorkspaceRail;
-beforeAll(async () => {
-  ({ WorkspaceRail } = await import('@/components/workbench/workspace/WorkspaceRail'));
-}, 30_000);
-
-=======
->>>>>>> abb5b53c (cherry-pick(39a0d155): fix(editor): keep legacy narration markers stable across edits (#1953))
 beforeAll(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   if (!globalThis.PointerEvent) vi.stubGlobal('PointerEvent', MouseEvent);
