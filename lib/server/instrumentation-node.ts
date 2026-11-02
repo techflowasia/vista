@@ -71,6 +71,9 @@ export async function registerNode(): Promise<void> {
   let extractionRunner:
     | import('@/lib/server/material-extraction/runner').MaterialExtractionRunnerHandle
     | undefined;
+  let ownerExtractionRunner:
+    | import('@/lib/server/material-extraction/owner-extraction').OwnerExtractionRunnerHandle
+    | undefined;
   let stopAgentEventNotifyBus: (() => Promise<void>) | null = null;
   let generationRunner:
     | import('@/lib/server/generation/run/runner').GenerationRunnerHandle
@@ -115,6 +118,19 @@ export async function registerNode(): Promise<void> {
       runner = runtime.startAgentRunner();
       const extraction = await import('@/lib/server/material-extraction/runner');
       extractionRunner = extraction.startMaterialExtractionRunner();
+      const ownerExtraction = await import('@/lib/server/material-extraction/owner-extraction');
+      ownerExtractionRunner = ownerExtraction.startOwnerExtractionRunner();
+      const materialPasses = import('@/lib/server/materials/migrate-to-pool');
+      if (process.env.MATERIALS_POOL_BACKFILL === '1') {
+        void materialPasses
+          .then(({ migrateOwnerMaterialsToPool }) => migrateOwnerMaterialsToPool())
+          .then((report) => console.info('[material-backfill] pass finished', report))
+          .catch((error) => console.error('[material-backfill] pass failed', error));
+      }
+      void materialPasses
+        .then(({ removeDeletedOriginals }) => removeDeletedOriginals())
+        .then((report) => console.info('[material-delete] cleanup pass finished', report))
+        .catch((error) => console.error('[material-delete] cleanup pass failed', error));
     }
   } catch (error) {
     console.error('[instrumentation] Agent runtime startup failed', error);
@@ -129,6 +145,16 @@ export async function registerNode(): Promise<void> {
         await extractionRunner?.stop();
       } catch (error) {
         console.error('[instrumentation] Material extraction runner drain failed', error);
+      }
+      try {
+        const drained = await ownerExtractionRunner?.stop();
+        if (drained && !drained.drained) {
+          console.warn(
+            `[instrumentation] Owner extraction not drained: ${drained.running} run(s) still going`,
+          );
+        }
+      } catch (error) {
+        console.error('[instrumentation] Owner extraction runner drain failed', error);
       }
       try {
         await materialExtractor?.stop();

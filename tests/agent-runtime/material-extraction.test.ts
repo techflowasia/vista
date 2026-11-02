@@ -1,5 +1,5 @@
-import { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { materialPGlite } from '../helpers/material-pglite';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import {
   PgAgentSessionStore,
@@ -14,11 +14,16 @@ import {
 import { buildMaterialTools } from '@/lib/server/agent-runtime/material-tools';
 import {
   decodeMediaAssetData,
+  planSourceExtraction,
+  runSourceExtraction,
   extractClaimedSessionMaterial,
 } from '@/lib/server/material-extraction/extract';
 import { runNextMaterialExtraction } from '@/lib/server/material-extraction/runner';
 import { LocalMediaExtractionError } from '@/lib/document/extractors/local-media';
-import type { MediaExtractorProvider } from '@/lib/document';
+import type { DocumentExtractorProvider, MediaExtractorProvider } from '@/lib/document';
+import { getDocumentExtractorManifestEntry } from '@/lib/document/extractors/manifest';
+import { selfHostedMinerUFailure } from '@/lib/pdf/pdf-providers';
+import { materialModelCopy } from '@/lib/server/agent-runtime/material-model-copy';
 
 function mediaProvider(
   extract: MediaExtractorProvider['extract'],
@@ -42,11 +47,7 @@ function mediaProvider(
 }
 
 describe('uploaded material extraction lifecycle', () => {
-  let db: PGlite | undefined;
-
-  afterEach(async () => {
-    await db?.close();
-  });
+  const database = materialPGlite();
 
   it('decodes both legacy raw-base64 and data-URL media assets identically', () => {
     const encoded = Buffer.from('prepared-webp').toString('base64');
@@ -74,9 +75,19 @@ describe('uploaded material extraction lifecycle', () => {
     );
   });
 
+  it('refuses a payload that is not base64, such as an image URL', () => {
+    const url = 'https://files.example.com/media/abc';
+    expect(() => decodeMediaAssetData(url)).toThrow('Invalid base64 payload');
+    expect(() => decodeMediaAssetData(`data:image/png;base64,${url}`)).toThrow(
+      'Invalid base64 payload',
+    );
+    // Wrapped base64 and the URL-safe alphabet still decode.
+    expect(decodeMediaAssetData('AQID\nBA==')).toEqual(Buffer.from([1, 2, 3, 4]));
+    expect(decodeMediaAssetData('-_8=')).toEqual(Buffer.from([0xfb, 0xff]));
+  });
+
   it('uploads a source, extracts it through the registry, and reads the extracted text', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -125,8 +136,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('settles a rejected extractor as failed with its reason', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -154,8 +164,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('requeues an extractor failure with a concrete transient signal', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -183,8 +192,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('persists a media transcript and prepared images through the asset registry', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -238,8 +246,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('retries a transient ASR failure and permanently fails a rejected ASR request', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -303,8 +310,7 @@ describe('uploaded material extraction lifecycle', () => {
   });
 
   it('fails cleanly with both media enablement paths when no provider is available', async () => {
-    db = new PGlite();
-    await db.waitReady;
+    const db = database();
     await ensureAgentSessionSchema(db);
     await ensureAgentSessionMaterialSchema(db);
     const sessions = new PgAgentSessionStore(db, {
@@ -326,10 +332,210 @@ describe('uploaded material extraction lifecycle', () => {
       }),
     );
 
+    // The classification extraction made is stored with the settlement (#1880).
     expect((await materials.getMaterial('session-1', 'mat_unavailable'))?.extraction).toEqual({
       status: 'failed',
       attempts: 0,
       error: expect.stringMatching(/Configure AliDocMind credentials.*install ffmpeg.*server ASR/i),
+      reasonCode: 'service_unavailable',
+    });
+
+    // The model reads that code back in the page's words for the run's
+    // language, with the configuration guidance, and none of the diagnostic.
+    for (const [locale, guidance] of [
+      ['zh-CN', '请联系管理员完成配置'],
+      ['en-US', 'Ask an administrator to configure one'],
+    ] as const) {
+      const listing = buildMaterialTools({
+        sessionId: 'session-1',
+        listMaterials: (sessionId) => materials.listMaterials(sessionId),
+        locale: () => locale,
+      }).find((candidate) => candidate.name === 'list_materials')!;
+      const wire = JSON.stringify(await listing.execute('list', {} as never));
+      expect(wire).toContain('"reasonCode":"service_unavailable"');
+      expect(wire).toContain(guidance);
+      expect(wire).not.toContain('Parse again');
+      expect(wire).not.toMatch(/AliDocMind|ffmpeg|server ASR/i);
+    }
+  });
+});
+
+it('preserves a local duration reason through the real media plan without changing retryability', async () => {
+  const { createLocalMediaExtractorProvider } =
+    await import('@/lib/document/extractors/local-media');
+  const local = createLocalMediaExtractorProvider({
+    commands: {
+      resolve: async (name) => name,
+      run: async () => ({
+        stdout: JSON.stringify({ format: { duration: 5401 }, streams: [{ codec_type: 'audio' }] }),
+        stderr: '',
+      }),
+    },
+  });
+  // Selection availability depends on deployment ASR settings; supply only that check.
+  const plan = await planSourceExtraction(
+    { bytes: Buffer.from('fixture'), mime: 'video/mp4' },
+    'long.mp4',
+    {
+      mediaProviders: () => [{ ...local, availability: async () => ({ available: true }) }],
+    },
+  );
+  await expect(runSourceExtraction(plan, 'long.mp4')).rejects.toMatchObject({
+    reasonCode: 'media_too_long',
+    retryable: false,
+  });
+});
+
+describe('document parsing service unavailable (session chain)', () => {
+  const documentService = (
+    id: string,
+    mimes: string[],
+    message = `API key required for PDF provider: ${id}`,
+  ): DocumentExtractorProvider => ({
+    id: id as never,
+    displayName: id,
+    version: '1',
+    supportedMimeTypes: mimes,
+    requiresServiceConfig: getDocumentExtractorManifestEntry(id)?.requiresServiceConfig ?? false,
+    capabilities: {
+      text: true,
+      images: false,
+      tables: false,
+      formulas: false,
+      layout: false,
+      ocr: false,
+      async: false,
+    },
+    extract: vi.fn(async () => {
+      throw new Error(message);
+    }) as never,
+  });
+
+  it('names it when every candidate is an unconfigured service', async () => {
+    const plan = await planSourceExtraction(
+      { bytes: Buffer.from('png'), mime: 'image/png' },
+      'board.png',
+      {
+        providers: () => [
+          documentService('mineru', ['image/png']),
+          documentService('alidocmind', ['image/png']),
+        ],
+        configuredProviderIds: () => [],
+      },
+    );
+    await expect(runSourceExtraction(plan, 'board.png')).rejects.toMatchObject({
+      reasonCode: 'service_unavailable',
+      retryable: false,
     });
   });
+
+  it('does not name it when the local unpdf took a PDF and failed', async () => {
+    const plan = await planSourceExtraction(
+      { bytes: Buffer.from('%PDF'), mime: 'application/pdf' },
+      'broken.pdf',
+      {
+        providers: () => [
+          documentService('mineru', ['application/pdf']),
+          documentService('unpdf', ['application/pdf'], 'Invalid PDF structure'),
+        ],
+        configuredProviderIds: () => [],
+      },
+    );
+    const failure = await runSourceExtraction(plan, 'broken.pdf').catch((error) => error);
+    expect(failure.reasonCode).toBeUndefined();
+  });
+
+  it('stops at a page-limit refusal: no fallback provider, not retried', async () => {
+    const unpdf = vi.fn(async () => ({
+      metadata: { pageCount: 1 },
+      blocks: [{ id: 'b1', type: 'text', text: 'unpdf text' }],
+    }));
+    const refusing = {
+      ...documentService('mineru', ['application/pdf']),
+      extract: vi.fn(async () => {
+        throw selfHostedMinerUFailure(
+          422,
+          JSON.stringify({
+            error: {
+              code: 'pdf_too_many_pages',
+              message: 'PDF has 461 pages, which exceeds the 200-page limit',
+            },
+          }),
+        );
+      }) as never,
+    };
+    const plan = await planSourceExtraction(
+      { bytes: Buffer.from('%PDF'), mime: 'application/pdf' },
+      'long.pdf',
+      {
+        providers: () => [
+          refusing,
+          { ...documentService('unpdf', ['application/pdf']), extract: unpdf as never },
+        ],
+        configuredProviderIds: () => ['mineru'],
+      },
+    );
+    const failure = await runSourceExtraction(plan, 'long.pdf').catch((error) => error);
+    expect(failure).toMatchObject({
+      reasonCode: 'too_many_pages',
+      reasonValues: { pages: 461, maxPages: 200 },
+      retryable: false,
+    });
+    expect(failure.message).toContain('mineru: MinerU refused the document: too many pages');
+    expect(unpdf).not.toHaveBeenCalled();
+  });
+
+  it('keeps a MinerU error body out of the failure it stores and reports', async () => {
+    const failing = {
+      ...documentService('mineru', ['application/pdf']),
+      extract: vi.fn(async () => {
+        throw selfHostedMinerUFailure(
+          500,
+          JSON.stringify({ detail: 'config not found at /srv/internal/mineru.yaml' }),
+        );
+      }) as never,
+    };
+    const plan = await planSourceExtraction(
+      { bytes: Buffer.from('%PDF'), mime: 'application/pdf' },
+      'doc.pdf',
+      { providers: () => [failing], configuredProviderIds: () => ['mineru'] },
+    );
+    const failure = await runSourceExtraction(plan, 'doc.pdf').catch((error) => error);
+    expect(failure.message).toContain('mineru: MinerU API error (500)');
+    expect(failure.message).not.toContain('/srv/internal');
+  });
+
+  it('reads whether a candidate is a service from its metadata, not its id', async () => {
+    const reasonFor = async (requiresServiceConfig: boolean) => {
+      const plan = await planSourceExtraction(
+        { bytes: Buffer.from('png'), mime: 'image/png' },
+        'board.png',
+        {
+          providers: () => [
+            { ...documentService('another-parser', ['image/png']), requiresServiceConfig },
+          ],
+          configuredProviderIds: () => [],
+        },
+      );
+      const failure = await runSourceExtraction(plan, 'board.png').catch((error) => error);
+      return failure.reasonCode;
+    };
+    expect(await reasonFor(true)).toBe('service_unavailable');
+    expect(await reasonFor(false)).toBeUndefined();
+  });
+});
+
+it('tells the model a page-limit refusal in the page words, with the stored counts', async () => {
+  const zh = await materialModelCopy('zh-CN');
+  expect(zh.failure('too_many_pages', 'library', { pages: 461, maxPages: 200 })).toEqual({
+    reasonCode: 'too_many_pages',
+    reason: '页数过多',
+    guidance: '这份 PDF 有 461 页，超过 200 页的解析上限。请拆分后上传，或只上传需要的章节。',
+  });
+  const en = await materialModelCopy('en-US');
+  expect(en.failure('too_many_pages', 'conversation', { maxPages: 200 }).guidance).toBe(
+    'This PDF is over the 200-page parsing limit. Split it and upload the parts, or upload only the chapters you need.',
+  );
+  expect(en.failure('too_many_pages', 'conversation').guidance).not.toMatch(/{{|\d/);
+  expect(en.failure('media_too_long').guidance).toContain('90 minutes');
 });

@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "Quay lại",
     "you": "Bạn",
     "confirm": "Xác nhận",
     "cancel": "Hủy",
@@ -10,6 +11,22 @@
     "close": "Đóng"
   },
   "home": {
+    "resumeGeneration": "Tiếp tục tạo",
+    "emptyLibraryTitle": "Lớp học của bạn bắt đầu ở đây",
+    "emptyLibraryBody": "Tạo khóa học ở trang chủ và quay lại đây để học tiếp.",
+    "mobileTitle": "Bạn muốn học gì?",
+    "mobileSubtitle": "Cho biết chủ đề, AI sẽ tạo một lớp học tương tác.",
+    "mobilePlaceholder": "Nhập chủ đề hoặc tải tài liệu lên",
+    "courseOptions": "Tùy chọn lớp học",
+    "courseMaterials": "Tài liệu khóa học",
+    "courseMaterialsCount": "Tài liệu khóa học · {{n}}",
+    "backToCourseOptions": "Quay lại tùy chọn lớp học",
+    "materialsDone": "Hoàn tất",
+    "allSettings": "Tất cả cài đặt",
+    "examplesLabel": "Thử một chủ đề",
+    "examplePython": "Học Python từ đầu",
+    "exampleFourier": "Hiểu biến đổi Fourier qua ví dụ trực quan",
+    "desktopOnly": "Hãy dùng máy tính cho trình biên tập và chế độ Pro.",
     "slogan": "Học tập sinh tạo trong lớp học tương tác đa tác nhân",
     "greetingWithName": "Chào {{name}}"
   },
@@ -2211,6 +2228,137 @@
     "webFetchSharedKeyHint": "Khóa này cũng được dùng để trò chuyện với nhà cung cấp này. Thay đổi hoặc xóa khóa sẽ ảnh hưởng đến trò chuyện."
   },
   "workspace": {
+    "knowledgeBase": {
+      "title": "Kho kiến thức",
+      "topLevel": "Cấp cao nhất",
+      "back": "Quay lại",
+      "search": "Tìm theo tên hoặc loại tệp",
+      "loading": "Đang tải…",
+      "retry": "Thử lại",
+      "loadMore": "Tải thêm",
+      "failure": {
+        "more": "Thông tin lỗi: {{reason}}",
+        "storage_full": {
+          "label": "Không đủ dung lượng",
+          "description": "Không đủ dung lượng để lưu kết quả phân tích. Hãy giải phóng dung lượng rồi thử lại."
+        },
+        "source_unavailable": {
+          "label": "Không đọc được tệp gốc",
+          "description": "Không thể đọc tệp gốc. Hãy tải tệp lên lại rồi thử lại."
+        },
+        "service_unavailable": {
+          "label": "Dịch vụ phân tích không khả dụng",
+          "description": "Chưa cấu hình dịch vụ phân tích cho loại tệp này. Hãy nhờ quản trị viên cấu hình dịch vụ, rồi chọn phân tích lại."
+        },
+        "media_too_long": {
+          "label": "Âm thanh hoặc video quá dài",
+          "description": "Phương thức phân tích này xử lý được âm thanh hoặc video dài tối đa {{minutes}} phút. Hãy rút ngắn hoặc chia nhỏ tệp rồi tải lên lại."
+        },
+        "no_text_extracted": {
+          "label": "Không trích xuất được văn bản",
+          "description": "Lần phân tích này không thu được văn bản có thể sử dụng. Hãy kiểm tra nội dung hoặc thử tệp khác."
+        },
+        "processing_interrupted": {
+          "label": "Phân tích chưa hoàn tất",
+          "description": "Không thể hoàn tất phân tích. Bạn có thể thử lại sau."
+        },
+        "too_many_pages": {
+          "label": "Quá nhiều trang",
+          "description": "Tệp PDF này có {{pages}} trang, vượt quá giới hạn phân tích {{maxPages}} trang. Hãy chia nhỏ tệp rồi tải lên, hoặc chỉ tải lên các chương cần thiết.",
+          "descriptionWithoutCount": "Tệp PDF này vượt quá giới hạn phân tích {{maxPages}} trang. Hãy chia nhỏ tệp rồi tải lên, hoặc chỉ tải lên các chương cần thiết.",
+          "descriptionWithoutLimit": "Tệp PDF này có nhiều trang hơn mức dịch vụ phân tích chấp nhận. Hãy chia nhỏ tệp rồi tải lên, hoặc chỉ tải lên các chương cần thiết."
+        }
+      },
+      "status": {
+        "uploading": "Đang tải lên",
+        "stored": "Đã lưu · chưa phân tích",
+        "parsing": "Đang phân tích",
+        "searchable": "Có thể tìm kiếm",
+        "failed": "Phân tích thất bại"
+      },
+      "column": {
+        "name": "Tên",
+        "status": "Trạng thái",
+        "folder": "Thư mục",
+        "size": "Kích thước",
+        "date": "Ngày"
+      },
+      "limits": {
+        "perFile": "Tối đa {{document}} cho mỗi tài liệu hoặc hình ảnh, {{media}} cho mỗi âm thanh hoặc video"
+      },
+      "usage": {
+        "summary": "Đã dùng {{used}} / {{max}} · {{count}} / {{maxCount}} tệp",
+        "fileStorage": "Bộ nhớ tệp tính riêng: đã dùng {{used}} / {{max}} (gồm nội dung đã phân tích và tư liệu khóa học)",
+        "fileStorageUnlimited": "Bộ nhớ tệp tính riêng: đã dùng {{used}} (gồm nội dung đã phân tích và tư liệu khóa học)"
+      },
+      "empty": {
+        "title": "Kho kiến thức của bạn đang trống",
+        "body": "Tải lên tài liệu giảng dạy, để trợ lý sắp xếp và phân tích, rồi chọn chúng bằng @ khi soạn bài.",
+        "folder": "Thư mục này chưa có tài liệu",
+        "query": "Không có tài liệu nào khớp với “{{query}}”"
+      },
+      "upload": {
+        "button": "Tải tài liệu lên",
+        "dismiss": "Bỏ qua"
+      },
+      "error": {
+        "load": "Không thể tải kho kiến thức",
+        "busy": "Tài khoản đang được cập nhật. Vui lòng thử lại sau giây lát",
+        "identity": "Trạng thái đăng nhập đã thay đổi. Hãy tải lại trang",
+        "stale": "nội dung hiển thị có thể chưa mới nhất",
+        "nameTaken": "Đã có thư mục khác dùng tên này",
+        "invalidName": "Nhập tên không quá 255 ký tự",
+        "folderNameEmpty": "Nhập tên thư mục",
+        "folderNameTooLong": "Tên thư mục quá dài",
+        "folderLimit": "Bạn đã đạt giới hạn số thư mục",
+        "notMovable": "Không thể chuyển tài liệu này",
+        "gone": "Mục này không còn tồn tại",
+        "save": "Không thực hiện được. Hãy thử lại",
+        "notEmpty": "Thư mục vẫn còn tài liệu. Hãy chuyển chúng đi trước",
+        "materialNotFound": "Không tìm thấy tài liệu hoặc không có quyền truy cập.",
+        "folderNotFound": "Không tìm thấy thư mục hoặc không có quyền truy cập.",
+        "textUnavailable": "Văn bản của tài liệu không khả dụng.",
+        "derivative": "Tài liệu phái sinh dùng tên của tài liệu gốc; hãy đổi tên tài liệu gốc.",
+        "moveTooMany": "Mỗi lần chỉ di chuyển tối đa {{limit}} tài liệu.",
+        "moveNotMovable": "Không có tài liệu nào được di chuyển. Một số tài liệu đã chọn không khả dụng hoặc không thể di chuyển.",
+        "toolFolderNameTooLong": "Tên thư mục quá dài (tối đa 40 ký tự nửa chiều rộng hoặc 20 ký tự toàn chiều rộng).",
+        "toolFolderLimit": "Cơ sở tri thức đã đạt giới hạn {{limit}} thư mục.",
+        "mediaUnsupported": "Chỉ có thể dùng hình ảnh, video hoặc âm thanh làm phương tiện của khóa học.",
+        "mediaStorageFull": "Không đủ dung lượng để lưu nội dung này. Hãy giải phóng dung lượng rồi thử lại.",
+        "mediaNotFound": "Không tìm thấy tài liệu đa phương tiện hoặc tài liệu không có tệp đa phương tiện khả dụng."
+      },
+      "actions": {
+        "parse": "Phân tích",
+        "reparse": "Phân tích lại",
+        "more": "Thao tác khác cho {{name}}",
+        "rename": "Đổi tên",
+        "delete": "Xóa",
+        "open": "Mở",
+        "downloadOriginal": "Tải xuống tệp gốc",
+        "chat": "Trò chuyện với tài liệu này"
+      },
+      "folder": {
+        "new": "Thư mục mới",
+        "items": "{{count}} mục",
+        "items_one": "{{count}} mục",
+        "items_other": "{{count}} mục"
+      },
+      "dialog": {
+        "cancel": "Hủy",
+        "close": "Đóng"
+      },
+      "delete": {
+        "materialTitle": "Xóa “{{name}}”?",
+        "materialLinks": "Các cuộc trò chuyện dùng tài liệu này sẽ không đọc được nó nữa; nội dung đã có trong các cuộc trò chuyện vẫn được giữ.",
+        "materialCourses": "Nội dung đã lưu vào khóa học không bị ảnh hưởng.",
+        "cannotUndo": "Không thể hoàn tác thao tác này.",
+        "folderTitle": "Xóa thư mục “{{name}}”?",
+        "folderContents": "Số tệp sẽ chuyển lên cấp cao nhất: {{count}}. Không tệp nào bị xóa."
+      },
+      "conversationFailure": {
+        "serviceUnavailable": "Chưa cấu hình dịch vụ phân tích cho loại tệp này. Hãy nhờ quản trị viên cấu hình."
+      }
+    },
     "untitledCourse": "未命名课堂",
     "sceneCount": "{{count}} 页",
     "sceneCount_one": "{{count}} 页",
@@ -2218,14 +2366,30 @@
     "courseLinkHint": "在右侧打开《{{name}}》",
     "courseLinkMore": "还有 {{count}} 节课堂",
     "courseMention": {
+      "search": "Tìm lớp học và tài liệu",
+      "searchMaterials": "Tìm tài liệu",
+      "searchClassrooms": "Tìm lớp học",
+      "courseOrder": "Lớp đang mở trước, sau đó theo cập nhật gần nhất",
+      "materialOrder": "Tải lên mới nhất trước",
       "title": "为这条消息引用课堂",
+      "titleBoth": "Tham chiếu lớp học hoặc đính kèm tài liệu từ kho kiến thức vào tin nhắn này",
+      "titleMaterials": "Đính kèm tài liệu từ kho kiến thức vào tin nhắn này",
       "empty": "没有匹配的课堂",
       "alreadyNamed": "已引用",
       "remove": "移除{{name}}",
       "pillHint": "这条消息引用了「{{name}}」",
       "notAccepted": "Máy chủ tạm thời không khả dụng. Vui lòng thử lại sau giây lát.",
       "reference": "引用「{{name}}」",
-      "capped": "仅显示前 {{count}} 个，继续输入以缩小范围"
+      "capped": "仅显示前 {{count}} 个，继续输入以缩小范围",
+      "classrooms": "Lớp học",
+      "knowledgeBase": "Kho kiến thức",
+      "emptyWithMaterials": "Không có lớp học hay tài liệu phù hợp",
+      "attachMaterial": "Đính kèm {{name}} vào tin nhắn này",
+      "materialUnavailable": "Không thể đính kèm {{name}} ({{reason}}). Mở kho kiến thức để xem lý do và phân tích lại.",
+      "materialAttached": "Đã có trong cuộc trò chuyện này",
+      "materialStaged": "Đã có trong tin nhắn này",
+      "materialsCapped": "Đang hiện {{count}} tài liệu đầu tiên — gõ tiếp để thu hẹp",
+      "materialUnavailableGuidance": "Không thể đính kèm {{name}}. {{guidance}} Bạn có thể xử lý tài liệu trên trang cơ sở tri thức."
     },
     "heroTitle": "What will you create today?",
     "heroSubtitle": "Share an idea and turn it into a learning journey people can step into",
@@ -2246,6 +2410,11 @@
     "homeAria": "Back to home",
     "currentSession": "Current chat",
     "startLearning": "Bắt đầu học",
+    "classroomMode": "Chế độ lớp học",
+    "learningMode": "Học",
+    "editingMode": "Chỉnh sửa",
+    "editingUnavailableGenerating": "Không thể chỉnh sửa khi khóa học đang được tạo.",
+    "fullscreenLearning": "Học toàn màn hình",
     "time": {
       "justNow": "Just now",
       "minutesAgo": "{{count}}m ago",
@@ -2359,7 +2528,8 @@
     "badgeEnter": "Chế độ Pro",
     "badgeExit": "Quay lại chế độ cổ điển",
     "launchPlaceholder": "Mô tả trải nghiệm học tập bạn muốn tạo",
-    "launchSend": "Bắt đầu tạo"
+    "launchSend": "Bắt đầu tạo",
+    "mentionCourseOrMaterial": "Nhắc đến một lớp học hoặc tài liệu trong kho kiến thức"
   },
   "workbench": {
     "tool": {

@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from 'next';
+import { AdaptiveProvider } from '@/lib/adaptive/adaptive-provider';
+import { identifyRequestDevice } from '@/lib/adaptive/request-device';
 import { cookies, headers } from 'next/headers';
 import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
@@ -42,14 +44,18 @@ import '@fontsource-variable/inter';
  */
 const THEME_INIT_SCRIPT = `try{var t=localStorage.getItem('theme');if(t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}`;
 
+// Keep the browser's default cutout avoidance: full-screen routes such as
+// classroom do not yet pad their controls for edge-to-edge rendering.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: DEFAULT_BRAND.themeColor,
+};
+
 export const metadata: Metadata = {
   title: DEFAULT_BRAND.productName,
   description: DEFAULT_BRAND.description,
   icons: { icon: DEFAULT_BRAND.markSrc },
-};
-
-export const viewport: Viewport = {
-  themeColor: DEFAULT_BRAND.themeColor,
 };
 
 export default async function RootLayout({
@@ -65,6 +71,7 @@ export default async function RootLayout({
     acceptLanguage: headerStore.get('accept-language'),
   });
   const resources = await loadLocaleResource(locale);
+  const { initialMobileLayout } = identifyRequestDevice(headerStore.get('user-agent'));
 
   return (
     <html lang={locale} suppressHydrationWarning>
@@ -75,19 +82,21 @@ export default async function RootLayout({
         className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <ThemeProvider>
-          <I18nProvider initialLocale={locale} initialResources={resources}>
-            <ModelSettingsInit />
-            <AgentRegistryInit />
-            <ProSwapWatcher />
-            <AccessCodeGuard>{children}</AccessCodeGuard>
-            <Toaster position="top-center" />
-            {/* After the Toaster: this one raises a toast on mount when
+        <AdaptiveProvider initialMobileLayout={initialMobileLayout}>
+          <ThemeProvider>
+            <I18nProvider initialLocale={locale} initialResources={resources}>
+              <ModelSettingsInit />
+              <AgentRegistryInit />
+              <ProSwapWatcher />
+              <AccessCodeGuard>{children}</AccessCodeGuard>
+              <Toaster position="top-center" />
+              {/* After the Toaster: this one raises a toast on mount when
                 persistence is already broken, and a toast raised before its
                 host exists has nowhere to go. */}
-            <StorageHealthNotice />
-          </I18nProvider>
-        </ThemeProvider>
+              <StorageHealthNotice />
+            </I18nProvider>
+          </ThemeProvider>
+        </AdaptiveProvider>
       </body>
     </html>
   );

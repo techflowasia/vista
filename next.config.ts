@@ -2,8 +2,14 @@ import type { NextConfig } from 'next';
 import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 
 const nextConfig: NextConfig = {
+  // Keep Next dev from creating or rewriting repository agent instructions.
+  agentRules: false,
   allowedDevOrigins: ['localhost', '127.0.0.1', 'vista-dev.techflow.asia', '3.0.243.12'],
   output: 'standalone',
+  env: {
+    INTERACTIVE_ASSET_BASE_URL:
+      process.env.INTERACTIVE_ASSET_BASE_URL?.trim() || '/vendor/interactive',
+  },
   outputFileTracingIncludes: {
     '/*': [
       'lib/server/agent-runtime/import-pptx-worker.mjs',
@@ -55,6 +61,13 @@ const nextConfig: NextConfig = {
     const frameAncestors = extraAncestors ? `'self' ${extraAncestors}` : "'self'";
 
     return [
+      {
+        source: '/vendor/interactive/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
       {
         source: '/(.*)',
         headers: [

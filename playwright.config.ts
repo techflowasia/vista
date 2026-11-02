@@ -8,7 +8,18 @@ export default defineConfig({
   // CI builds the production bundle in a dedicated workflow step, so this
   // process only drives Chromium. Two workers fit a 4-core runner.
   workers: process.env.CI ? 2 : undefined,
-  reporter: process.env.CI ? 'html' : 'list',
+  // CI names every test as it finishes (`list`): with `html` alone the run
+  // printed one unflushed line of dots, so a stall said nothing about which
+  // test it was.
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
+  // Every test, its hooks and fixtures included, gets 30 s (Playwright's
+  // default, stated so a spec that raises it does so explicitly).
+  timeout: 30_000,
+  // The whole run stops inside the job's 15-minute budget (a passing run takes
+  // about 6 minutes after a 4-minute setup): Playwright then reports the tests
+  // still running by name, and the report is uploaded, instead of the job
+  // being cancelled with neither.
+  globalTimeout: process.env.CI ? 9 * 60_000 : undefined,
   use: {
     baseURL: 'http://localhost:3002',
     trace: 'on-first-retry',
@@ -33,7 +44,7 @@ export default defineConfig({
     // (e2e/fixtures/server-seed.ts), each under a fresh id.
     command: process.env.CI ? 'pnpm start' : 'pnpm dev',
     url: 'http://localhost:3002',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env.CI || process.env.E2E_REUSE_EXISTING_SERVER === 'true',
     timeout: 120_000,
     // Enable the MAIC Editor (Pro mode) so editor e2e can reach it. This is a
     // build-time NEXT_PUBLIC_* flag: in CI it must be set on the dedicated
@@ -42,6 +53,8 @@ export default defineConfig({
       PORT: '3002',
       NEXT_PUBLIC_MAIC_EDITOR_ENABLED: 'true',
       NEXT_PUBLIC_COURSEWARE_REFERENCE_ENABLED: 'true',
+      ACCESS_CODE: '',
+      COOKIE_SECURE: '0',
     },
   },
 });
