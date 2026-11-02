@@ -87,7 +87,7 @@ test.describe('Home library skeleton', () => {
     await page.route('**/_next/static/**/*.js', (route) => route.abort());
     await page.goto('/');
     await expect(skeleton(page)).toBeVisible();
-    const logo = page.locator('img[alt="OpenMAIC"]');
+    const logo = page.getByRole('img', { name: 'Vista' });
     await expect(logo).toBeVisible();
     // The hero's entrance is CSS: it finishes without any script.
     await expect.poll(() => logo.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');

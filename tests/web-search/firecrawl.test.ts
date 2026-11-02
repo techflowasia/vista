@@ -54,6 +54,7 @@ describe('searchWithFirecrawl', () => {
       'https://api.firecrawl.dev/v2/search',
       expect.objectContaining({
         method: 'POST',
+        redirect: 'error',
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer fc-key',

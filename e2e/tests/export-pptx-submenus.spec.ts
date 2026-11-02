@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import JSZip from 'jszip';
 import { test, expect } from '../fixtures/base';
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { ClassroomPage } from '../pages/classroom.page';
 import { seedServerDocument, uniqueStageId } from '../fixtures/server-seed';
 
@@ -12,7 +12,6 @@ import { seedServerDocument, uniqueStageId } from '../fixtures/server-seed';
  */
 async function seedCourse(page: Page): Promise<string> {
   await page.addInitScript(() => localStorage.setItem('locale', 'en-US'));
-  await page.goto('/');
   const stageId = uniqueStageId('e2e-export-pptx-submenus');
   const now = Date.now();
   const scene = (id: string, type: string, order: number, content: Record<string, unknown>) => ({
@@ -84,8 +83,10 @@ async function openExportMenu(page: Page) {
 const subTrigger = (page: Page, name: RegExp) => page.getByRole('menuitem', { name });
 
 /** Click `item` and return the downloaded file's bytes and name. */
-async function download(page: Page, item: Locator) {
-  const [file] = await Promise.all([page.waitForEvent('download'), item.click()]);
+async function download(page: Page, activate: () => Promise<void>) {
+  const [file] = await Promise.all([page.waitForEvent('download'), activate()]);
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Export PPTX' })).toBeEnabled();
   return { name: file.suggestedFilename(), bytes: await fs.readFile((await file.path())!) };
 }
 
@@ -102,7 +103,7 @@ test.describe('Export menu: PPTX and Resource Pack submenus', () => {
     await subTrigger(page, /^Export PPTX/).hover();
     const slidesOnly = page.getByRole('menuitem', { name: /^Slides only/ });
     await expect(slidesOnly).toBeVisible();
-    const plain = await download(page, slidesOnly);
+    const plain = await download(page, () => slidesOnly.click());
     expect(plain.name).toMatch(/\.pptx$/);
     expect(await slideCount(plain.bytes)).toBe(1);
 
@@ -110,7 +111,7 @@ test.describe('Export menu: PPTX and Resource Pack submenus', () => {
     await subTrigger(page, /^Export PPTX/).hover();
     const withPlaceholders = page.getByRole('menuitem', { name: /^With placeholder slides/ });
     await expect(withPlaceholders).toBeVisible();
-    const full = await download(page, withPlaceholders);
+    const full = await download(page, () => withPlaceholders.click());
     // The interactive and quiz scenes add one placeholder slide each.
     expect(await slideCount(full.bytes)).toBe(3);
   });
@@ -128,8 +129,9 @@ test.describe('Export menu: PPTX and Resource Pack submenus', () => {
     const withPlaceholders = page.getByRole('menuitem', { name: /^With placeholder slides/ });
     await expect(withPlaceholders).toBeFocused();
 
-    const [file] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Enter')]);
-    expect(await slideCount(await fs.readFile((await file.path())!))).toBe(3);
+    const file = await download(page, () => page.keyboard.press('Enter'));
+    expect(file.name).toMatch(/\.pptx$/);
+    expect(await slideCount(file.bytes)).toBe(3);
   });
 
   test('Resource Pack: both choices download a ZIP with the interactive page', async ({ page }) => {
@@ -143,7 +145,7 @@ test.describe('Export menu: PPTX and Resource Pack submenus', () => {
       await subTrigger(page, /^Export Resource Pack/).hover();
       const item = page.getByRole('menuitem', { name });
       await expect(item).toBeVisible();
-      const pack = await download(page, item);
+      const pack = await download(page, () => item.click());
       expect(pack.name).toMatch(/\.zip$/);
       const zip = await JSZip.loadAsync(pack.bytes);
       const files = Object.keys(zip.files).filter((n) => !zip.files[n].dir);

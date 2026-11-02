@@ -21,14 +21,21 @@ export interface BrandConfig {
   markSrc: string;
   /** Browser theme color (`<meta name="theme-color">` / PWA). */
   themeColor: string;
+  /** Product description used in browser metadata. */
+  description: string;
+  /** Product name recorded in generated artifacts. */
+  exportName: string;
 }
 
 /** The default brand: the product itself, with no vendor overrides. */
 export const DEFAULT_BRAND: BrandConfig = {
-  productName: 'OpenMAIC',
-  shortName: 'OpenMAIC',
+  productName: 'Vista',
+  shortName: 'Vista',
   logoSrc: '/logo-horizontal.png',
   logoHasWordmark: true,
   markSrc: '/openmaic-mark.png',
   themeColor: '#722ed1',
+  description:
+    'The AI interactive classroom. Upload a PDF to instantly generate an immersive, multi-agent learning experience.',
+  exportName: 'Vista',
 };

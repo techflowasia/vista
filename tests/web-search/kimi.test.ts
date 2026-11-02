@@ -36,6 +36,7 @@ describe('Kimi web search', () => {
     });
     expect(proxyFetchMock).toHaveBeenCalledWith(endpoint, {
       method: 'POST',
+      redirect: 'error',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer key' },
       body: JSON.stringify({
         text_query: 'OpenMAIC',

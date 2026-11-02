@@ -49,6 +49,7 @@ export async function searchWithFirecrawl(params: {
 
   const res = await proxyFetch(firecrawlEndpoint(baseUrl || FIRECRAWL_DEFAULT_BASE_URL, 'search'), {
     method: 'POST',
+    redirect: 'error',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,

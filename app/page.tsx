@@ -55,6 +55,7 @@ import { cn } from '@/lib/utils';
 import { SettingsDialog } from '@/components/settings';
 import { GenerationToolbar } from '@/components/generation/generation-toolbar';
 import { AgentBar } from '@/components/agent/agent-bar';
+import { DEFAULT_BRAND } from '@/lib/brand/brand-config';
 import { useTheme } from '@/lib/hooks/use-theme';
 import {
   courseGenerationUsable,
@@ -910,10 +911,10 @@ function HomePage() {
         {/* ── Logo ── */}
         <div className="home-brand relative" data-pro-morph="lockup">
           <img
-            src="/logo-horizontal.png"
-            alt="OpenMAIC"
+            src={DEFAULT_BRAND.logoSrc}
+            alt={DEFAULT_BRAND.productName}
             className={cn(
-              'h-12 md:h-16 mb-2 -ml-2 md:-ml-3',
+              'h-[5.1rem] md:h-[6.8rem] mb-2 -ml-2 md:-ml-3',
               heroEnter('fade-in zoom-in-90 duration-500 delay-100'),
             )}
           />
@@ -1677,7 +1678,7 @@ function HomePage() {
 
       {/* Footer — flows with content, at the very end */}
       <div className="home-footer mt-auto pt-12 pb-4 text-center text-xs text-muted-foreground/40">
-        OpenMAIC Open Source Project
+        {DEFAULT_BRAND.shortName}
       </div>
     </div>
   );

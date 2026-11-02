@@ -278,7 +278,7 @@ describe('PPT element reference Route → Director → real call_agent L2', () =
   let originalCoursewareReferenceFlag: string | undefined;
   let originalNativeFlag: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalCoursewareReferenceFlag = process.env[coursewareReferenceFlag];
     originalNativeFlag = process.env[nativeFlag];
     process.env[coursewareReferenceFlag] = 'true';
@@ -300,6 +300,7 @@ describe('PPT element reference Route → Director → real call_agent L2', () =
       modelInfo: { outputWindow: 1024, contextWindow: 8192 },
       thinkingConfig: { mode: 'disabled', enabled: false },
     });
+    await import('@/app/api/chat/pi/route');
   });
 
   afterEach(() => {

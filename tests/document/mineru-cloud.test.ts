@@ -19,7 +19,7 @@
  */
 import zlib from 'node:zlib';
 import JSZip from 'jszip';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const transport = vi.hoisted(() => ({ providerFetch: vi.fn() }));
 
@@ -41,7 +41,7 @@ vi.mock('@/lib/server/audio-provider-fetch', async (importOriginal) => {
 });
 
 import {
-  parseWithMinerUCloud,
+  parseWithMinerUCloud as parseWithMinerUCloudImpl,
   MAX_JSON_BYTES,
   MAX_ZIP_BYTES,
   MAX_ZIP_ENTRY_COUNT,
@@ -214,6 +214,35 @@ function makeSingleEntryZip(
 }
 
 const originalAllowLocal = process.env.ALLOW_LOCAL_NETWORKS;
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+async function parseWithMinerUCloud(...args: Parameters<typeof parseWithMinerUCloudImpl>) {
+  let settled = false;
+  const result = parseWithMinerUCloudImpl(...args).then(
+    (value) => {
+      settled = true;
+      return { value };
+    },
+    (error: unknown) => {
+      settled = true;
+      return { error };
+    },
+  );
+  while (!settled) {
+    await vi.runOnlyPendingTimersAsync();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const outcome = await result;
+  if ('error' in outcome) throw outcome.error;
+  return outcome.value;
+}
 
 describe('parseWithMinerUCloud — transport policy and response URL validation', () => {
   afterEach(() => {
@@ -568,9 +597,9 @@ describe('parseWithMinerUCloud — bounded reads', () => {
     // A small, compressed archive whose single entry expands beyond the cap;
     // the declared total is under the archive budget, so the extracted length
     // is what has to reject it.
-    const zip = new JSZip();
-    zip.file('full.md', 'a'.repeat(MAX_ZIP_TEXT_ENTRY_BYTES + 1));
-    const zipBuf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    const expandedBytes = MAX_ZIP_TEXT_ENTRY_BYTES + 1;
+    const rawDeflated = zlib.deflateRawSync(Buffer.alloc(expandedBytes, 0x61), { level: 6 });
+    const zipBuf = makeSingleEntryZip('full.md', rawDeflated, expandedBytes);
     expect(zipBuf.length).toBeLessThan(MAX_ZIP_BYTES);
 
     const result = await runWithZipResponse(new Response(new Uint8Array(zipBuf), { status: 200 }));

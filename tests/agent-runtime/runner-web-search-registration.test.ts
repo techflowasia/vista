@@ -732,3 +732,18 @@ it('omits fetch_url and its prompt when the webFetch slot is disabled', async ()
   expect(options.systemPrompt).not.toContain('## Fetch URL');
   expect(options.systemPrompt).not.toContain('`fetch_url`');
 });
+
+afterEach(() => setDeploymentConfigForTests());
+it('omits fetch_url and its prompt when the webFetch slot is disabled', async () => {
+  mocks.resolveWebSearchCapability.mockResolvedValue(null);
+  setDeploymentConfigForTests({
+    layer: { source: 'deployment', config: { slots: { webFetch: null } } },
+    legacy: false,
+    notices: [],
+  });
+  const options = await runToBuildAgent();
+  expect(options.tools.map((tool) => tool.name)).not.toContain('fetch_url');
+  expect(options.allowedToolNames?.has('fetch_url')).toBe(false);
+  expect(options.systemPrompt).not.toContain('## Fetch URL');
+  expect(options.systemPrompt).not.toContain('`fetch_url`');
+});

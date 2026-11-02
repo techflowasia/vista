@@ -8,6 +8,7 @@ import './globals.css';
 import '@openmaic/renderer/fonts.css';
 import 'animate.css';
 import 'katex/dist/katex.min.css';
+import { DEFAULT_BRAND } from '@/lib/brand/brand-config';
 import { ThemeProvider } from '@/lib/hooks/use-theme';
 import { I18nProvider } from '@/lib/hooks/use-i18n';
 import { Toaster } from '@/components/ui/sonner';
@@ -48,12 +49,13 @@ const THEME_INIT_SCRIPT = `try{var t=localStorage.getItem('theme');if(t==='dark'
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  themeColor: DEFAULT_BRAND.themeColor,
 };
 
 export const metadata: Metadata = {
-  title: 'OpenMAIC',
-  description:
-    'The open-source AI interactive classroom. Upload a PDF to instantly generate an immersive, multi-agent learning experience.',
+  title: DEFAULT_BRAND.productName,
+  description: DEFAULT_BRAND.description,
+  icons: { icon: DEFAULT_BRAND.markSrc },
 };
 
 export default async function RootLayout({

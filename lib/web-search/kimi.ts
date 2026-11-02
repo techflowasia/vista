@@ -39,6 +39,7 @@ export async function searchWithKimi(params: {
   const { url, coding } = searchEndpoint(baseUrl || DEFAULT_BASE_URL);
   const res = await proxyFetch(url, {
     method: 'POST',
+    redirect: 'error',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       text_query: query,

@@ -44,6 +44,7 @@ import { retiredPresetReason } from '@/lib/config/preset-ids';
 import type { ThinkingConfig } from '@/lib/types/provider';
 import {
   parseModelRef,
+  implicitWebFetchProviderId,
   type ModelConfigFile,
   type SlotAssignment,
 } from '@/lib/server/model-config/openmaic-yml';
@@ -185,6 +186,7 @@ function resolveTarget(
   at: string,
   /** The provider's connection alone: a chat reference without a model is accepted. */
   providerOnly = false,
+  assignmentSource?: ConfigSource,
 ): ResolvedModelTarget {
   let parsed: { providerId: string; modelId?: string };
   try {
@@ -196,15 +198,27 @@ function resolveTarget(
   if (modelId === undefined && capability === 'chat' && !providerOnly) {
     throw new SlotResolutionError(`${at}: a chat model needs "providerId:modelId"`);
   }
-  if (capability === 'webFetch' && providerId === defaultWebFetchProviderId(layers)) {
+  const found = findProvider(providerId, layers);
+  const deploymentLayers = layers.filter((layer) => layer.source === 'deployment');
+  const deploymentImplicitId = defaultWebFetchProviderId(deploymentLayers);
+  const implicitDeploymentAssignment =
+    assignmentSource === 'deployment' &&
+    !findProvider(providerId, deploymentLayers) &&
+    (providerId === DEFAULT_WEB_FETCH_PROVIDER.id || providerId === deploymentImplicitId);
+  if (
+    capability === 'webFetch' &&
+    (implicitDeploymentAssignment ||
+      (providerId === DEFAULT_WEB_FETCH_PROVIDER.id && found?.source !== 'deployment') ||
+      (!found &&
+        (providerId === defaultWebFetchProviderId(layers) || providerId === deploymentImplicitId)))
+  ) {
     return {
-      providerId,
+      providerId: defaultWebFetchProviderId(layers),
       providerSource: 'deployment',
       presetId: DEFAULT_WEB_FETCH_PROVIDER.id,
       registryId: DEFAULT_WEB_FETCH_PROVIDER.id,
     };
   }
-  const found = findProvider(providerId, layers);
   // Errors name the path, never a value taken from the reference: a key pasted
   // into the provider position must not end up in a log.
   if (!found) throw new SlotResolutionError(`${at}: the provider is not declared`);
@@ -401,7 +415,14 @@ export function resolveSlot(
 
     const at = `slots.${node}`;
     const spec = typeof assignment === 'string' ? { model: assignment } : assignment;
-    const target = resolveTarget(spec.model, capability, layers, at);
+    const target = resolveTarget(
+      spec.model,
+      capability,
+      layers,
+      at,
+      false,
+      found.source === 'workspace' ? 'workspace' : 'deployment',
+    );
     // Only language-model calls retry on a fallback; a fallback anywhere else
     // would be configuration that silently does nothing.
     if (spec.fallback && capability !== 'chat') {
@@ -465,8 +486,17 @@ export function resolveSlot(
 
 /** Stable display id for the implicit keyless reader, without shadowing configured providers. */
 export function defaultWebFetchProviderId(layers: readonly ModelConfigLayer[]): string {
-  let id = DEFAULT_WEB_FETCH_PROVIDER.id;
-  const deployment = layers.find((layer) => layer.source === 'deployment');
-  while (Object.hasOwn(deployment?.config.providers ?? {}, id)) id += '-default';
-  return id;
+  return implicitWebFetchProviderId(
+    layers.map((layer) =>
+      layer.source === 'workspace'
+        ? {
+            providers: Object.fromEntries(
+              Object.entries(layer.config.providers ?? {}).filter(
+                ([id]) => id !== DEFAULT_WEB_FETCH_PROVIDER.id,
+              ),
+            ),
+          }
+        : layer.config,
+    ),
+  );
 }

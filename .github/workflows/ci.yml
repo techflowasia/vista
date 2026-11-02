@@ -18,6 +18,7 @@ on:
     branches:
       [
         main,
+        develop,
         runtime-server-backend,
         integration/kv-asset-server-backend,
         integration/agent-workbench,
@@ -122,6 +123,14 @@ jobs:
       # The root tsc reaches tests that load render-service sources, which
       # resolve the standalone service's own Node dependencies.
       - name: Install render-service dependencies
+        working-directory: render-service
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: npm ci
+
+      # Root proxy integration tests load current and historical render-service
+      # sources. They need the standalone service's Node dependencies as well.
+      - name: Install render-service test dependencies
         working-directory: render-service
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
@@ -331,7 +340,7 @@ jobs:
 
   e2e:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The app stores every course in PostgreSQL and refuses to start without
     # DATABASE_URL, so the browser suite runs against a real database; specs

@@ -45,6 +45,29 @@ allowUserKeys: false
 `;
 
 describe('parseModelConfig', () => {
+  it.each([
+    ['', 'builtin'],
+    ['  builtin: { preset: firecrawl }\n', 'builtin-default'],
+    [
+      '  builtin: { preset: firecrawl }\n  builtin-default: { preset: firecrawl }\n',
+      'builtin-default-default',
+    ],
+  ])('accepts the collision-adjusted implicit reader for providers %s', (providers, ref) => {
+    const text = `${providers ? `providers:\n${providers}` : ''}slots:\n  webFetch: ${ref}\n`;
+    expect(parseModelConfig(text).slots?.webFetch).toBe(ref);
+  });
+
+  it('keeps explicit providers authoritative for builtin and suffixed references', () => {
+    for (const id of ['builtin', 'builtin-default']) {
+      expect(
+        issuesOf(`providers:\n  ${id}: { preset: tavily }\nslots:\n  webFetch: ${id}\n`),
+      ).toEqual([`slots.webFetch: provider "${id}" (preset "tavily") does not offer webFetch`]);
+    }
+    expect(issuesOf('slots:\n  webFetch: builtin-default\n')).toEqual([
+      'slots.webFetch: provider "builtin-default" is not declared under providers',
+    ]);
+  });
+
   it('accepts the RFC example and interpolates secrets', () => {
     const config = parseModelConfig(EXAMPLE, { env });
     expect(config.providers?.minimax.apiKey).toBe('sk-test');

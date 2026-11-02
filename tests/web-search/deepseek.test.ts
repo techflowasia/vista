@@ -35,6 +35,7 @@ describe('DeepSeek web search', () => {
     });
     expect(proxyFetch).toHaveBeenCalledExactlyOnceWith(endpoint, {
       method: 'POST',
+      redirect: 'error',
       headers: { Authorization: 'Bearer key', 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: 'OpenMAIC', count: 10, need_content: false }),
       signal,

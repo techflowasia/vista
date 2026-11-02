@@ -30,6 +30,7 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     '.next/**',
+    '.runtime/**',
     'out/**',
     'build/**',
     'next-env.d.ts',
@@ -50,7 +51,9 @@ const eslintConfig = defineConfig([
     '.worktrees/**',
     '.scratch/**',
     // Playwright e2e tests (not React code):
-    'e2e/**',
+    'e2e/**/*',
+    '!e2e/tests/',
+    '!e2e/tests/classroom-interaction.spec.ts',
     // Isolated MP4 render service: its own package, tsconfig, and Node-only
     // deps (@hyperframes/producer). Linted/typechecked under render-service/.
     'render-service/**',
@@ -502,19 +505,19 @@ const eslintConfig = defineConfig([
         'error',
         {
           selector:
-            'ImportDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$).+/]',
+            'ImportDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$|@\\/lib\\/brand\\/brand-config$).+/]',
           message:
             'The Hyperframes emitter may import only in-module relatives (./… or one ../…) and the shared pure Quiz renderer ../../quiz/math-text.',
         },
         {
           selector:
-            'ExportNamedDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$).+/]',
+            'ExportNamedDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$|@\\/lib\\/brand\\/brand-config$).+/]',
           message:
             'The Hyperframes emitter may re-export only in-module relatives (./… or one ../…) and ../../quiz/math-text.',
         },
         {
           selector:
-            'ExportAllDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$).+/]',
+            'ExportAllDeclaration > Literal.source[value=/^(?!\\.\\/|\\.\\.\\/(?!\\.\\.\\/)|\\.\\.\\/\\.\\.\\/quiz\\/math-text$|@\\/lib\\/brand\\/brand-config$).+/]',
           message:
             'The Hyperframes emitter may re-export only in-module relatives (./… or one ../…) and ../../quiz/math-text.',
         },

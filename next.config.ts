@@ -4,6 +4,7 @@ import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 const nextConfig: NextConfig = {
   // Keep Next dev from creating or rewriting repository agent instructions.
   agentRules: false,
+  allowedDevOrigins: ['localhost', '127.0.0.1', 'vista-dev.techflow.asia', '3.0.243.12'],
   output: 'standalone',
   env: {
     INTERACTIVE_ASSET_BASE_URL:

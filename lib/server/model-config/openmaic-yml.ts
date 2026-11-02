@@ -190,6 +190,17 @@ const fileSchema = z
 
 export type ModelConfigFile = z.infer<typeof fileSchema>;
 
+export function implicitWebFetchProviderId(configs: readonly ModelConfigFile[]): string {
+  const occupied = new Set(configs.flatMap((config) => Object.keys(config.providers ?? {})));
+  let id = DEFAULT_WEB_FETCH_PROVIDER.id;
+  let suffix = 1;
+  while (occupied.has(id)) {
+    const next = `${id}-default`;
+    id = next.length <= 63 ? next : `${DEFAULT_WEB_FETCH_PROVIDER.id}-default-${suffix++}`;
+  }
+  return id;
+}
+
 export class ModelConfigError extends Error {
   constructor(
     readonly file: string,
@@ -360,7 +371,8 @@ function crossCheck(
     if (
       !provider &&
       getSlot(slot).capability === 'webFetch' &&
-      providerId === DEFAULT_WEB_FETCH_PROVIDER.id
+      (providerId === DEFAULT_WEB_FETCH_PROVIDER.id ||
+        providerId === implicitWebFetchProviderId([config]))
     )
       return;
     if (!provider) {

@@ -31,6 +31,7 @@ export async function searchWithDeepSeek(params: {
   const startedAt = Date.now();
   const response = await proxyFetch(deepseekToolsEndpoint(baseUrl, 'search'), {
     method: 'POST',
+    redirect: 'error',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({ query, count, need_content: false }),
     ...(signal ? { signal } : {}),

@@ -27,7 +27,7 @@
     "examplePython": "零基础学习 Python",
     "exampleFourier": "用直观的例子讲解傅里叶变换",
     "desktopOnly": "编辑器和专业模式请在电脑上使用。",
-    "slogan": "Generative Learning in Multi-Agent Interactive Classroom",
+    "slogan": "Visual Intelligence & Study Teaching Agent",
     "greetingWithName": "嗨，{{name}}"
   },
   "toolbar": {
@@ -1870,7 +1870,7 @@
       "download": "下载",
       "detailFailed": "技能详情加载失败",
       "contentLabel": "正文",
-      "builtinDetailNote": "该技能随 OpenMAIC 提供。下载后可导入其他智能体工作台。",
+      "builtinDetailNote": "该技能随 Vista 提供。下载后可导入其他智能体工作台。",
       "upload": "上传",
       "uploading": "正在上传…",
       "uploadFailed": "技能上传失败。请检查文件后重试。",

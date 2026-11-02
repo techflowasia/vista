@@ -3,6 +3,7 @@ import { PROVIDER_PRESETS } from '@/lib/config/provider-presets';
 import { parseModelConfig } from '@/lib/server/model-config/openmaic-yml';
 import {
   SlotResolutionError,
+  defaultWebFetchProviderId,
   resolveModelReference,
   resolveSlot,
   type ModelConfigLayer,
@@ -35,6 +36,135 @@ slots:
 );
 
 describe('resolveSlot', () => {
+  it('allocates the implicit reader across all layers without intercepting explicit providers', () => {
+    const server = layer(
+      'deployment',
+      'providers:\n  builtin:\n    preset: firecrawl\n    apiKey: server-key\n',
+    );
+    const workspace: ModelConfigLayer = {
+      source: 'workspace',
+      config: {
+        providers: {
+          'builtin-default': { preset: 'firecrawl', apiKey: 'workspace-key' },
+          'builtin-default-default': { preset: 'tavily', apiKey: 'search-key' },
+        },
+        slots: { webFetch: 'builtin-default' },
+      },
+    };
+    for (const layers of [
+      [server, workspace],
+      [workspace, server],
+    ]) {
+      expect(defaultWebFetchProviderId(layers)).toBe('builtin-default-default-default');
+      expect(resolveSlot('webFetch', layers)).toMatchObject({
+        providerId: 'builtin-default',
+        registryId: 'firecrawl',
+        providerSource: 'workspace',
+        apiKey: 'workspace-key',
+      });
+      expect(resolveModelReference('builtin', 'webFetch', layers)).toMatchObject({
+        registryId: 'firecrawl',
+        apiKey: 'server-key',
+      });
+      expect(() => resolveModelReference('builtin-default-default', 'webFetch', layers)).toThrow(
+        /does not offer webFetch/,
+      );
+      expect(
+        resolveModelReference(defaultWebFetchProviderId(layers), 'webFetch', layers),
+      ).toMatchObject({ registryId: 'builtin' });
+    }
+  });
+
+  it('keeps generated references within the provider ID grammar after a long collision chain', () => {
+    const providers = Object.fromEntries(
+      Array.from({ length: 8 }, (_, index) => [
+        'builtin' + '-default'.repeat(index),
+        { preset: 'firecrawl' },
+      ]),
+    );
+    providers['builtin-default-1'] = { preset: 'firecrawl' };
+    const config = { providers };
+    const layers: ModelConfigLayer[] = [{ source: 'deployment', config }];
+    const id = defaultWebFetchProviderId(layers);
+    expect(id).toBe('builtin-default-1-default');
+    const parsed = parseModelConfig(JSON.stringify({ ...config, slots: { webFetch: id } }));
+    expect(resolveSlot('webFetch', [{ source: 'deployment', config: parsed }])).toMatchObject({
+      providerId: id,
+      registryId: 'builtin',
+    });
+  });
+
+  it('keeps literal builtin references when only a suffixed workspace provider exists', () => {
+    const workspace: ModelConfigLayer = {
+      source: 'workspace',
+      config: {
+        providers: { 'builtin-default': { preset: 'firecrawl' } },
+        slots: { webFetch: 'builtin' },
+      },
+    };
+    expect(resolveSlot('webFetch', [workspace])).toMatchObject({
+      providerId: 'builtin',
+      registryId: 'builtin',
+    });
+  });
+
+  it('keeps a deployment implicit reference alongside unrelated suffixed workspace providers', () => {
+    const server: ModelConfigLayer = {
+      source: 'deployment',
+      config: {
+        providers: { builtin: { preset: 'firecrawl' } },
+        slots: { webFetch: 'builtin-default' },
+      },
+    };
+    const workspace: ModelConfigLayer = {
+      source: 'workspace',
+      config: { providers: { 'builtin-default-default': { preset: 'firecrawl' } } },
+    };
+    expect(resolveSlot('webFetch', [server, workspace])).toMatchObject({ registryId: 'builtin' });
+  });
+
+  it.each([true, false])(
+    'protects deployment implicit suffixed assignments with locked=%s',
+    (locked) => {
+      const server: ModelConfigLayer = {
+        source: 'deployment',
+        config: {
+          providers: { builtin: { preset: 'firecrawl', apiKey: 'server-key' } },
+          slots: { webFetch: { model: 'builtin-default' } },
+          ...(locked ? { lock: ['webFetch'] } : {}),
+        },
+      };
+      const workspace: ModelConfigLayer = {
+        source: 'workspace',
+        config: { providers: { 'builtin-default': { preset: 'firecrawl', apiKey: 'user-key' } } },
+      };
+      for (const layers of [
+        [server, workspace],
+        [workspace, server],
+      ]) {
+        expect(resolveSlot('webFetch', layers)).toMatchObject({
+          registryId: 'builtin',
+          providerId: 'builtin-default-default',
+          providerSource: 'deployment',
+          locked,
+        });
+        expect(resolveSlot('webFetch', layers)).not.toHaveProperty('apiKey');
+        expect(resolveModelReference('builtin-default', 'webFetch', layers)).toMatchObject({
+          registryId: 'firecrawl',
+          providerSource: 'workspace',
+          apiKey: 'user-key',
+        });
+        const selected = {
+          ...workspace,
+          config: { ...workspace.config, slots: { webFetch: 'builtin-default' } },
+        };
+        expect(resolveSlot('webFetch', [server, selected])).toMatchObject({
+          registryId: locked ? 'builtin' : 'firecrawl',
+        });
+      }
+    },
+  );
+
   it('inherits from the nearest assigned ancestor', () => {
     const outline = resolveSlot('course.outline', [deployment]);
     expect(outline).toMatchObject({
