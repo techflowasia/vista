@@ -265,8 +265,12 @@ test.describe('Generation runs', () => {
     const scenes = page.locator('[data-testid="scene-item"]');
     await expect(scenes.first()).toBeVisible({ timeout: 15_000 });
     // Generating: the Pro switch shows, disabled.
-    await expect(page.getByRole('switch')).toBeDisabled();
-    releaseSecondScene();
+    try {
+      expect(run.snapshot().state).toBe('generating');
+      await expect(page.getByRole('switch')).toBeDisabled();
+    } finally {
+      releaseSecondScene();
+    }
     // The second scene arrives while the classroom is open.
     await expect(scenes).toHaveCount(2, { timeout: 15_000 });
     await expect(page.getByRole('switch')).toBeDisabled();
