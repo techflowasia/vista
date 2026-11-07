@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { requestAccessCode } from '@/components/access-code-guard';
 import { createLogger } from '@/lib/logger';
+import { FetchEventSource } from '@/lib/utils/fetch-event-source';
 
 import { fetchGenerationRun } from './api';
 import { RunFollower, type RunFollowerState, type RunFollowStatus } from './follower';
@@ -36,7 +37,8 @@ export function useGenerationRun(runId: string | null): FollowedRun {
     if (!runId) return;
     const follower = new RunFollower(runId, {
       fetchSnapshot: fetchGenerationRun,
-      openEvents: typeof EventSource === 'undefined' ? null : (url: string) => new EventSource(url),
+      openEvents:
+        typeof EventSource === 'undefined' ? null : (url: string) => new FetchEventSource(url),
       onChange: (value) => {
         setState({ runId, value });
         if (value.status === 'auth-required') requestAccessCode();

@@ -217,6 +217,31 @@ describe('callLLM retryable-failure fallback', () => {
 
     expect(aiMock.streamText.mock.calls[0][0].maxOutputTokens).toBe(65536);
   });
+  it.each([false, true])(
+    'preserves a shared report deadline across fallback only when requested (%s)',
+    async (preserveAbortSignal) => {
+      fallbackMock.shouldFallbackFor.mockReturnValue(true);
+      const primary = { provider: 'deepseek', modelId: 'primary' } as never;
+      attachModelFallback(primary, async () => ({
+        model: 'fallback' as never,
+        modelString: 'deepseek:fallback',
+      }));
+      aiMock.generateText
+        .mockRejectedValueOnce(new Error('upstream unavailable'))
+        .mockResolvedValueOnce(okResult());
+      const abortSignal = new AbortController().signal;
+      await callLLM(
+        { model: primary, prompt: 'hi', abortSignal } as never,
+        'pbl-learning-report',
+        undefined,
+        undefined,
+        { preserveAbortSignal },
+      );
+      expect(aiMock.generateText.mock.calls[1]?.[0]?.abortSignal).toBe(
+        preserveAbortSignal ? abortSignal : undefined,
+      );
+    },
+  );
 
   it("retries on the model's attached slot fallback, never MODEL_FALLBACK", async () => {
     fallbackMock.shouldFallbackFor.mockReturnValue(true);

@@ -57,6 +57,7 @@ import { GenerationToolbar } from '@/components/generation/generation-toolbar';
 import { AgentBar } from '@/components/agent/agent-bar';
 import { DEFAULT_BRAND } from '@/lib/brand/brand-config';
 import { useTheme } from '@/lib/hooks/use-theme';
+import { useRestorePresetAgentChoice } from '@/lib/hooks/use-restore-preset-agent-choice';
 import {
   courseGenerationUsable,
   requireModelCapabilities,
@@ -164,6 +165,7 @@ function HomePage() {
   const { theme, setTheme } = useTheme();
   const router = useRouter();
   const mobile = useMobileLayout();
+  useRestorePresetAgentChoice();
   useEffect(() => {
     if (!mobile) return;
     return installPageScrollBoundary(document);
