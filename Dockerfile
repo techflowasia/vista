@@ -85,8 +85,10 @@ RUN pnpm run build:packages
 
 # V8 derives its default heap limit from the container's memory, which leaves
 # the Next.js type check about 2 GiB inside a 8 GiB Docker Desktop VM and runs
-# it out of heap. An explicit limit keeps the build predictable there.
-RUN NODE_OPTIONS=--max-old-space-size=6144 pnpm build
+# it out of heap. 4 GiB is enough for the type check and still leaves room
+# for the rest of the build when linux/amd64 is emulated under QEMU in that
+# VM; a 6 GiB limit ran the VM itself out of memory there.
+RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm build
 
 # ---- Stage 4: Runner ----
 FROM node:22-alpine AS runner
