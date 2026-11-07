@@ -83,7 +83,10 @@ COPY . .
 # the root `postinstall` runs locally, so local dev is unchanged.
 RUN pnpm run build:packages
 
-RUN pnpm build
+# V8 derives its default heap limit from the container's memory, which leaves
+# the Next.js type check about 2 GiB inside a 8 GiB Docker Desktop VM and runs
+# it out of heap. An explicit limit keeps the build predictable there.
+RUN NODE_OPTIONS=--max-old-space-size=6144 pnpm build
 
 # ---- Stage 4: Runner ----
 FROM node:22-alpine AS runner
