@@ -2,6 +2,35 @@
 
 บันทึกการเปลี่ยนแปลงของ image `ghcr.io/techflowasia/vista-app` แต่ละเวอร์ชัน (เลขเวอร์ชันมาจาก `vista.package.json`) การเปลี่ยนแปลงจาก OpenMAIC upstream ดูรายละเอียดใน [CHANGELOG.md](CHANGELOG.md)
 
+## [1.0.3] - 2026-11-08
+
+Build จาก `develop` ที่ `62f70be4` บน OpenMAIC upstream **v1.4.1** (1.0.2 อยู่บน upstream 1.3.1)
+
+### Upstream
+
+- รวม OpenMAIC [1.4.0](CHANGELOG.md#140---2026-11-04) และ [1.4.1](CHANGELOG.md#141---2026-11-05) รวมถึง fix และ feature หลัง 1.4.1 จนถึง #2159 (PR #13)
+- **PBL v3** และ **shared sandbox** (experimental): โปรเจกต์เขียนโปรแกรมที่รันได้จริงใน classroom พร้อม IDE, terminal และ AI tutor ปิดอยู่จนกว่าจะตั้ง sandbox provider (`/pbl-v3` ตอบ 404)
+- Course-level undo timeline สำหรับการแก้ไขทั้งจากผู้ใช้และ agent (#2159)
+- Provider เสียง Xiaomi MiMo TTS และ ASR (`TTS_XIAOMI_*`, `ASR_XIAOMI_*`) (#1976)
+- เปลี่ยน Qwen voice cloning ไปใช้ CosyVoice (`cosyvoice-v3.5-plus`) (#1949)
+- แก้ปัญหา background sync ทับการแก้ไขที่ยังไม่บันทึกและทำ progress ของ PBL หาย (#2168, #2184) และคอร์สเปิดช้ามากบนเน็ตช้า (#2185)
+
+### Changed
+
+- Merge conflict กับโค้ดของ Vista แก้โดยเก็บทั้งสองฝั่ง: provider registry ของ Vista, generation observability (`attempts`) ใน `lib/ai/llm.ts` และการขอ access code ใน `use-generation-run.ts`
+- เพิ่ม Xiaomi TTS/ASR ใน test matrix ของ media provider ของ Vista
+
+### Deploy notes
+
+- **อัปเกรดแล้วย้อนกลับไม่ได้**: `@openmaic/storage` 0.39.2 เพิ่ม asset migration v4 ที่รันเองตอนเริ่ม persistence หลังจากนั้น 1.0.2 จะไม่ยอม start กับฐานข้อมูลนี้ (`SchemaVersionAheadError`)
+  - Backup ฐานข้อมูลก่อนอัปเกรด ถ้าต้อง rollback ให้ restore ฐานข้อมูล ไม่ใช่แค่สลับ image กลับ
+  - หยุด container 1.0.2 ทุกตัวก่อน start 1.0.3 อย่ารันสองเวอร์ชันพร้อมกัน
+  - Migration lock ตาราง `document_asset_refs` ระหว่าง validate constraint ตารางใหญ่จะใช้เวลาสักพัก
+- ตั้งแต่เวอร์ชันนี้ server เช็ก schema ทุก ~30 วินาที และ replica เก่าจะ exit เมื่อเวอร์ชันใหม่ migrate ฐานข้อมูล
+- ถ้าใช้ Qwen voice cloning ต้องเพิ่ม `cosyvoice-v3.5-plus` ใน `TTS_QWEN_MODELS` คู่กับ `qwen3-tts-flash` (เช่น `TTS_QWEN_MODELS=qwen3-tts-flash,cosyvoice-v3.5-plus`) ไม่อย่างนั้นจะได้ HTTP 403 เสียงที่ clone ไว้แบบเดิมต้อง clone ใหม่
+- PBL v3 และ sandbox ปิดอยู่ ไม่ต้องตั้งค่าเพิ่ม ถ้าจะเปิดใช้ ดู [PBL v3 guide](lib/pbl/v3/README.md#try-the-sample) และ [sandbox README](lib/server/sandbox/README.md) เมื่อเปิด sandbox แล้วทุก owner ที่เข้าระบบได้จะใช้ sandbox ได้ (รวม anonymous) จึงต้องมี `ACCESS_CODE` หรือระบบ sign-in และตั้ง cap ให้ต่ำ
+- ค่า env จาก 1.0.2 ยังใช้ได้เหมือนเดิม Image ยังไม่มี `.env*` และอ่านค่าจาก `.env.local` บนเครื่อง deploy
+
 ## [1.0.2] - 2026-11-03
 
 Build จาก `develop` ที่ `49f98630` บน OpenMAIC upstream **v1.3.1** (1.0.1 อยู่บน upstream 1.2.0-rc.2)
