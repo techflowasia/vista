@@ -4,7 +4,7 @@
 
 ## [1.0.3] - 2026-11-08
 
-Build จาก `develop` ที่ `62f70be4` บน OpenMAIC upstream **v1.4.1** (1.0.2 อยู่บน upstream 1.3.1)
+Build จาก `develop` ที่ `a0c6a94e` บน OpenMAIC upstream **v1.4.1** (1.0.2 อยู่บน upstream 1.3.1)
 
 ### Upstream
 
@@ -19,6 +19,7 @@ Build จาก `develop` ที่ `62f70be4` บน OpenMAIC upstream **v1.4.1
 
 - Merge conflict กับโค้ดของ Vista แก้โดยเก็บทั้งสองฝั่ง: provider registry ของ Vista, generation observability (`attempts`) ใน `lib/ai/llm.ts` และการขอ access code ใน `use-generation-run.ts`
 - เพิ่ม Xiaomi TTS/ASR ใน test matrix ของ media provider ของ Vista
+- Dockerfile ตั้ง `NODE_OPTIONS=--max-old-space-size=4096` ให้ `pnpm build` เพราะ type check ของ Next.js ใช้ heap เกิน ~2 GiB ที่ V8 ตั้งให้ใน Docker Desktop VM 8 GiB (PR #15, #16)
 
 ### Deploy notes
 
