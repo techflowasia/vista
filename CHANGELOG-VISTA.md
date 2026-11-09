@@ -2,6 +2,21 @@
 
 บันทึกการเปลี่ยนแปลงของ image `ghcr.io/techflowasia/vista-app` แต่ละเวอร์ชัน (เลขเวอร์ชันมาจาก `vista.package.json`) การเปลี่ยนแปลงจาก OpenMAIC upstream ดูรายละเอียดใน [CHANGELOG.md](CHANGELOG.md)
 
+## [1.0.4] - 2026-11-09
+
+Build จาก `develop` ที่ `e1e1c641` (บวก commit release นี้ที่แก้แค่เลขเวอร์ชันและ changelog) บน OpenMAIC upstream **v1.4.1** พร้อม fix หลัง 1.4.1 จนถึง #2213
+
+### Upstream
+
+- Widget outline ส่งถึงตัวเขียนหน้าแบบครบ: ตัวแปรที่เป็น object แสดงเป็นข้อความที่อ่านได้ ส่ง design idea ต่อไปด้วย และ field ที่ไม่มีช่องใน prompt ไปอยู่ในหัวข้อ Additional Design Requirements (#2209)
+- Library ของ interactive ที่อยู่ใน allowlist แต่ model พิมพ์เลขเวอร์ชันผิด จะ map ไปยัง build ที่ host ไว้แทนที่จะได้ 404 ทั้งตอน render และ export (#2209)
+- Range ของ widget แบบ `{ min, max, step }` ส่ง `step` และ constraint อื่นถึงตัวเขียนหน้าแล้ว ก่อนหน้านี้เหลือแค่ min–max (#2210)
+- Laser pointer ตอน playback อยู่ตำแหน่งเดียวกับที่เห็นใน editor (#2213)
+
+### Deploy notes
+
+- ไม่มี migration ของฐานข้อมูลและไม่มีค่า env ใหม่ อัปเกรดจาก 1.0.3 ได้ด้วยการเปลี่ยน image อย่างเดียว และสลับกลับไป 1.0.3 ได้
+
 ## [1.0.3] - 2026-11-08
 
 Build จาก `develop` ที่ `a0c6a94e` บน OpenMAIC upstream **v1.4.1** (1.0.2 อยู่บน upstream 1.3.1)
