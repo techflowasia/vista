@@ -83,12 +83,16 @@ COPY . .
 # the root `postinstall` runs locally, so local dev is unchanged.
 RUN pnpm run build:packages
 
-# V8 derives its default heap limit from the container's memory, which leaves
-# the Next.js type check about 2 GiB inside a 8 GiB Docker Desktop VM and runs
-# it out of heap. 4 GiB is enough for the type check and still leaves room
-# for the rest of the build when linux/amd64 is emulated under QEMU in that
-# VM; a 6 GiB limit ran the VM itself out of memory there.
-RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm build
+# Keep the build's peak memory inside an 8 GiB Docker Desktop VM, which
+# otherwise kills it (exit 137). See next.config.ts:
+# - NEXT_SKIP_TYPECHECK skips next build's own type check, which needed a
+#   4 GiB heap on top of the Turbopack compile. CI's `tsc --noEmit` still
+#   type-checks every PR.
+# - NEXT_DISABLE_BUILD_CACHE skips writing the Turbopack build cache, which a
+#   Docker build never reuses.
+# - NEXT_BUILD_CPUS caps the page-data and static-generation workers at 2
+#   (default: CPU count - 1), each a separate Node process.
+RUN NEXT_SKIP_TYPECHECK=1 NEXT_DISABLE_BUILD_CACHE=1 NEXT_BUILD_CPUS=2 pnpm build
 
 # ---- Stage 4: Runner ----
 FROM node:22-alpine AS runner

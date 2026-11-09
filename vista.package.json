@@ -4,7 +4,7 @@
     "vista:db:up": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml up -d --wait postgres",
     "vista:db:down": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml stop postgres",
     "vista:build": "docker buildx bake -f vista.yml --set vista.tags=ghcr.io/techflowasia/vista-app:${npm_package_version} --load vista",
-    "vista:push": "docker buildx bake -f vista.yml --set vista.platform=linux/amd64,linux/arm64 --set vista.tags=ghcr.io/techflowasia/vista-app:${npm_package_version} --push vista",
+    "vista:push": "docker buildx bake -f vista.yml --set vista.platform=linux/arm64 --set vista.tags=ghcr.io/techflowasia/vista-app:${npm_package_version}-arm64 --push vista && docker buildx bake -f vista.yml --set vista.platform=linux/amd64 --set vista.tags=ghcr.io/techflowasia/vista-app:${npm_package_version}-amd64 --push vista && docker buildx imagetools create -t ghcr.io/techflowasia/vista-app:${npm_package_version} ghcr.io/techflowasia/vista-app:${npm_package_version}-arm64 ghcr.io/techflowasia/vista-app:${npm_package_version}-amd64",
     "vista:up": "node runtime-build.mjs",
     "vista:down": "docker compose -p vista-runtime -f vista.yml -f vista.runtime.yml down"
   }

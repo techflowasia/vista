@@ -32,6 +32,11 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     tsconfigPath: process.env.NODE_ENV === 'production' ? 'tsconfig.build.json' : 'tsconfig.json',
+    // The Dockerfile sets NEXT_SKIP_TYPECHECK=1: next build's type check needs
+    // a ~4 GiB heap on top of the Turbopack compile, which runs an 8 GiB Docker
+    // Desktop VM out of memory. CI's `tsc --noEmit` (ci.yml) still gates every
+    // PR, and a plain local `next build` keeps type-checking.
+    ignoreBuildErrors: process.env.NEXT_SKIP_TYPECHECK === '1',
   },
   transpilePackages: ['mathml2omml', 'pptxgenjs', '@openmaic/importer'],
   // These agent packages do a runtime `import(specifier)` with a computed
@@ -55,6 +60,13 @@ const nextConfig: NextConfig = {
   ],
   experimental: {
     proxyClientMaxBodySize: '200mb',
+    // Docker builds start without .next/cache, so the Turbopack build cache is
+    // never reused there, and serializing it adds to the build's peak memory.
+    turbopackFileSystemCacheForBuild: process.env.NEXT_DISABLE_BUILD_CACHE !== '1',
+    // Each page-data/static-generation worker is its own Node process. The
+    // default (CPU count - 1) runs a QEMU-emulated amd64 Docker build out of
+    // memory, so the Dockerfile caps it with NEXT_BUILD_CPUS.
+    ...(Number(process.env.NEXT_BUILD_CPUS) > 0 ? { cpus: Number(process.env.NEXT_BUILD_CPUS) } : {}),
   },
   async headers() {
     const extraAncestors = process.env.ALLOWED_FRAME_ANCESTORS?.trim();

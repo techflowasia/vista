@@ -50,6 +50,10 @@ node run.mjs vista:push
 
 Image จะถูก push เป็น `ghcr.io/techflowasia/vista-app:<version>` โดย `<version>` มาจาก `vista.package.json` เช่น `1.0.2`
 
+`vista:push` build ทีละ platform เพื่อให้พอกับ memory ของ Docker Desktop VM 8 GiB: build และ push `linux/arm64` เป็น tag `<version>-arm64` ก่อน ตามด้วย `linux/amd64` เป็น `<version>-amd64` แล้วรวมเป็น `<version>` ด้วย `docker buildx imagetools create` ถ้า build ทั้งสอง platform พร้อมกัน (`--platform linux/arm64,linux/amd64`) `pnpm build` จะถูก kill ด้วย `cannot allocate memory` Tag `-arm64` และ `-amd64` ชี้ไปที่ image เดียวกับ `<version>` ลบทิ้งในหน้า package บน GitHub ได้หลัง push เสร็จ
+
+Image ไม่รัน type check ของ `next build` (Dockerfile ตั้ง `NEXT_SKIP_TYPECHECK=1`) เพราะใช้ memory มากเกินไปใน VM นี้ ให้ปล่อย image จาก commit ที่ผ่าน CI (`tsc --noEmit`) แล้วเท่านั้น
+
 
 ## AWS
 ```bash
